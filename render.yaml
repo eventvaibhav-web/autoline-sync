@@ -1,0 +1,51 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> select this repo
+services:
+  - type: web
+    name: autoline-sync
+    runtime: node
+    region: singapore
+    plan: starter            # must be paid: free plan sleeps after 15 min and loses files
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    numInstances: 1          # must stay 1 (lock + state.json)
+    disk:
+      name: autoline-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR
+        value: /var/data
+      - key: TIMEZONE
+        value: Asia/Bahrain
+      - key: AUTOLINE_ROOFTOP_ID
+        value: SOC1P_PH
+      - key: STOCK_SOURCE
+        value: total
+      - key: PRICE_MODE
+        value: price1
+      - key: LOCATION_STOCK_MAP
+        value: SOE4P_PH=gid://shopify/Location/84407025889,SOE3P_PH=gid://shopify/Location/84407058657
+      - key: OUTLET_ROOFTOPS
+        value: SOE4P_PH,SOE3P_PH
+      - key: DELIVERY_ONLY_TAG
+        value: delivery-only
+      - key: DESCRIPTION_SYNC_ENABLED
+        value: "false"
+      - key: DRY_RUN
+        value: "true"        # change to false after checking logs
+      - key: SHOPIFY_STORE
+        value: ykalmoayyed-test-store.myshopify.com
+      - key: SHOPIFY_API_VERSION
+        value: "2025-07"
+      # Secrets: fill these in the Render dashboard (never commit them)
+      - key: SHOPIFY_ADMIN_TOKEN
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: AUTOLINE_EXTRA_HEADERS
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false

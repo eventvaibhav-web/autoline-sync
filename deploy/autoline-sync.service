@@ -1,0 +1,23 @@
+# systemd service for Linux servers (Ubuntu/Debian/RHEL)
+# Install:  sudo cp deploy/autoline-sync.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now autoline-sync
+[Unit]
+Description=Autoline -> Shopify stock sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autoline
+WorkingDirectory=/opt/autoline-sync
+ExecStart=/usr/bin/node /opt/autoline-sync/src/server.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/autoline-sync
+
+[Install]
+WantedBy=multi-user.target

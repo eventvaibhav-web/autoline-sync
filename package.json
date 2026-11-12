@@ -1,0 +1,19 @@
+{
+  "name": "autoline-sync",
+  "version": "1.0.0",
+  "description": "Autoline -> Shopify stock, price and status sync (YK Almoayyed)",
+  "main": "src/server.js",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "sync-once": "node src/sync.js --once",
+    "sync-part": "node src/sync.js --part",
+    "reconcile": "node src/sync.js --reconcile",
+    "test-autoline": "node scripts/test-autoline.js",
+    "test-shopify": "node scripts/test-shopify.js"
+  },
+  "dependencies": {}
+}

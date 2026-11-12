@@ -1,0 +1,59 @@
+# ===== Copy this file to ".env" and fill in the values =====
+
+# ---------- Autoline ----------
+AUTOLINE_BASE_URL=https://ykacentralapi.almoayyed.com.bh/prod/api/v1
+AUTOLINE_SESSION_ID=12345
+# OPEN QUESTION 1: confirm the e-commerce (C1) RooftopId with IT
+AUTOLINE_ROOFTOP_ID=SO01P_PH
+AUTOLINE_USER_ID=ADMIN-YK
+# OPEN QUESTION 3: if IT gives an API key/token, put extra headers here as JSON
+# Example: AUTOLINE_EXTRA_HEADERS={"x-api-key":"abc123"}
+AUTOLINE_EXTRA_HEADERS=
+AUTOLINE_TIMEOUT_MS=20000
+
+# OPEN QUESTION 2: which stock goes to the store?
+#   total     = totalStockQty
+#   prime1    = quantity_1 (Prime1) only
+#   prime1-3  = quantity_1 + quantity_2 + quantity_3
+STOCK_SOURCE=total
+
+# Description sync stays OFF until business approves (true/false)
+DESCRIPTION_SYNC_ENABLED=false
+
+# ---------- Shopify ----------
+SHOPIFY_STORE=ykalmoayyed-test-store.myshopify.com
+# Option A (new, 2026+): app made in Dev Dashboard -> Settings -> Client ID / Client secret
+# The app gets a 24-hour token itself and refreshes it automatically.
+SHOPIFY_CLIENT_ID=
+SHOPIFY_CLIENT_SECRET=
+# Option B (only if an OLD legacy custom app already exists): its shpat_ token. Leave empty if using Option A.
+SHOPIFY_ADMIN_TOKEN=
+SHOPIFY_API_VERSION=2025-07
+# Leave empty if the store has only one active location.
+# Otherwise run "npm run test-shopify" and copy the location id here (gid://shopify/Location/...)
+SHOPIFY_LOCATION_ID=
+
+# ---------- Sync ----------
+SYNC_INTERVAL_MINUTES=15
+RECONCILIATION_TIME=02:00
+TIMEZONE=Asia/Bahrain
+CONCURRENCY=3
+# true = only log what WOULD change, write nothing to Shopify (good for first test)
+DRY_RUN=true
+PARTS_LIST_FILE=parts-list.csv
+
+# ---------- Alerts ----------
+OUTAGE_ALERT_MINUTES=60
+# Optional: Teams / Slack / Google Chat incoming-webhook URL (receives {"text": "..."})
+ALERT_WEBHOOK_URL=
+ALERT_COOLDOWN_MINUTES=60
+
+# ---------- Logs ----------
+LOG_RETENTION_DAYS=365
+
+# ---------- Dashboard ----------
+PORT=3000
+# 127.0.0.1 = only this computer can open the dashboard. Use 0.0.0.0 on a server behind a firewall.
+HOST=127.0.0.1
+# Long random password for the dashboard: http://localhost:3000/?token=ADMIN_TOKEN
+ADMIN_TOKEN=YkSync-2026-Bahrain-x7k9
