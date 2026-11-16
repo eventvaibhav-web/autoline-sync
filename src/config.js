@@ -21,7 +21,9 @@ function loadEnvFile() {
 }
 const envLoaded = loadEnvFile();
 
-const env = (k, d = '') => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
+// SRC = .env / real environment, plus overrides saved from the dashboard (settings.json)
+let SRC = process.env;
+const env = (k, d = '') => (SRC[k] !== undefined && SRC[k] !== '' ? SRC[k] : d);
 const num = (k, d) => {
   const n = Number(env(k, d));
   return Number.isFinite(n) ? n : d;
@@ -80,7 +82,8 @@ function parseNumMap(raw) {
   return out;
 }
 
-const config = {
+function build() {
+  return {
   root: ROOT,
   dataDir: DATA_DIR,
   envLoaded,
@@ -123,6 +126,9 @@ const config = {
   blockSaleAction: env('BLOCK_SALE_ACTION', 'zero').toLowerCase(),
   blockedTag: env('BLOCKED_TAG', 'autoline-blocked').trim(),
   statusMetafields: bool('STATUS_METAFIELDS', true),
+  // Pickup order re-check (orders/create webhook)
+  pickupRecheck: bool('PICKUP_RECHECK', true),
+  pickupAlertTag: env('PICKUP_ALERT_TAG', 'pickup-stock-alert').trim(),
   priceSwingPercent: num('PRICE_SWING_PERCENT', 50),
   safetyBuffer: parseNumMap(env('SAFETY_BUFFER', '')),
   shopify: {
@@ -132,6 +138,8 @@ const config = {
     clientSecret: env('SHOPIFY_CLIENT_SECRET', ''),
     apiVersion: env('SHOPIFY_API_VERSION', '2025-07'),
     locationId: env('SHOPIFY_LOCATION_ID', ''),
+    // App "API secret key" (legacy app) or "Client secret" (Dev Dashboard app): verifies webhook signatures
+    webhookSecret: env('SHOPIFY_WEBHOOK_SECRET', env('SHOPIFY_CLIENT_SECRET', '')),
   },
   sync: {
     intervalMinutes: num('SYNC_INTERVAL_MINUTES', 15),
@@ -139,6 +147,8 @@ const config = {
     timezone: env('TIMEZONE', 'Asia/Bahrain'),
     concurrency: Math.max(1, num('CONCURRENCY', 3)),
     dryRun: bool('DRY_RUN', false),
+    // false = no scheduled / nightly / startup runs; only manual Refresh from the dashboard or CLI
+    autoSync: bool('AUTO_SYNC', true),
     partsListFile: path.resolve(ROOT, env('PARTS_LIST_FILE', 'parts-list.csv')),
   },
   alerts: {
@@ -157,9 +167,88 @@ const config = {
     host: env('HOST', process.env.RENDER ? '0.0.0.0' : '127.0.0.1'),
     adminToken: env('ADMIN_TOKEN', ''),
   },
-};
+  };
+}
 
-function validate({ needShopify = true, needServer = false } = {}) {
+// ---------- Dashboard settings (settings.json) ----------
+// Only these keys can be changed from the dashboard. Secrets, URLs, port/host are .env only.
+const EDITABLE = {
+  AUTO_SYNC: { type: 'bool', group: 'Sync', label: 'Automatic sync (every interval + nightly). OFF = only manual Refresh' },
+  DRY_RUN: { type: 'bool', group: 'Sync', label: 'Dry run (write nothing to Shopify)' },
+  SYNC_INTERVAL_MINUTES: { type: 'number', group: 'Sync', label: 'Sync every (minutes)', min: 5, max: 1440 },
+  RECONCILIATION_TIME: { type: 'time', group: 'Sync', label: 'Nightly reconciliation time (HH:MM, ' },
+  CONCURRENCY: { type: 'number', group: 'Sync', label: 'Parallel parts', min: 1, max: 20 },
+  PARTS_SOURCE: { type: 'select', group: 'Parts', label: 'Parts list from', options: { csv: 'parts-list.csv', tag: 'Shopify tag' } },
+  SYNC_TAG: { type: 'text', group: 'Parts', label: 'Sync tag' },
+  FRANCHISE_MAP: { type: 'textarea', group: 'Parts', label: 'Franchise codes (Brand=CODE, comma separated)' },
+  AUTOLINE_ROOFTOP_ID: { type: 'text', group: 'Autoline', label: 'Main rooftop (price, blockSale)' },
+  LOCATION_STOCK_MAP: { type: 'textarea', group: 'Autoline', label: 'Rooftop → Shopify location (ROOFTOP=gid://shopify/Location/ID)' },
+  OUTLET_ROOFTOPS: { type: 'text', group: 'Autoline', label: 'Pickup outlet rooftops' },
+  STOCK_SOURCE: { type: 'select', group: 'Autoline', label: 'Stock quantity', options: { total: 'totalStockQty', prime1: 'Prime1 only', 'prime1-3': 'Prime1 + 2 + 3' } },
+  SAFETY_BUFFER: { type: 'text', group: 'Autoline', label: 'Safety buffer (ROOFTOP=number)' },
+  PRICE_MODE: { type: 'select', group: 'Price & product', label: 'Selling price', options: { price1: 'Price1 only', price1_special: 'Price1 + specialPrice promo' } },
+  PRICE_SWING_PERCENT: { type: 'number', group: 'Price & product', label: 'Report price change above (%)', min: 1, max: 1000 },
+  DESCRIPTION_SYNC_ENABLED: { type: 'bool', group: 'Price & product', label: 'Sync description from Autoline' },
+  BLOCK_SALE_ACTION: { type: 'select', group: 'Price & product', label: 'When blockSale = Y', options: { zero: 'Stock 0 + tag', draft: 'Set product to Draft' } },
+  BLOCKED_TAG: { type: 'text', group: 'Price & product', label: 'Blocked tag' },
+  STATUS_METAFIELDS: { type: 'bool', group: 'Price & product', label: 'Write sync status metafields' },
+  DELIVERY_ONLY_TAG: { type: 'text', group: 'Delivery only', label: 'Delivery-only tag' },
+  DELIVERY_ONLY_PRODUCT_TYPES: { type: 'text', group: 'Delivery only', label: 'Delivery-only product types (comma separated)' },
+  DELIVERY_ONLY_ACTION: { type: 'select', group: 'Delivery only', label: 'Outlet stock for delivery-only', options: { zero: 'Set to 0', deactivate: 'Deactivate inventory' } },
+  PICKUP_RECHECK: { type: 'bool', group: 'Pickup orders', label: 'Re-check outlet stock in Autoline when a pickup order arrives' },
+  PICKUP_ALERT_TAG: { type: 'text', group: 'Pickup orders', label: 'Order tag when outlet stock is short' },
+  OUTAGE_ALERT_MINUTES: { type: 'number', group: 'Alerts', label: 'Alert when Autoline down (minutes)', min: 5, max: 1440 },
+  ALERT_WEBHOOK_URL: { type: 'text', group: 'Alerts', label: 'Alert webhook URL (Teams/Slack)' },
+};
+EDITABLE.RECONCILIATION_TIME.label = 'Nightly reconciliation time (HH:MM)';
+
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+let overrides = {};
+function readOverrides() {
+  try {
+    const o = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    const clean = {};
+    for (const [k, v] of Object.entries(o || {})) if (EDITABLE[k]) clean[k] = String(v);
+    return clean;
+  } catch {
+    return {};
+  }
+}
+
+function buildWith(o) {
+  const prev = SRC;
+  SRC = { ...process.env, ...o };
+  try {
+    return build();
+  } finally {
+    SRC = prev;
+  }
+}
+
+// Copy a freshly built config into the shared object (other modules hold a reference to it)
+function assignInto(target, src) {
+  for (const [k, v] of Object.entries(src)) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object' && !Array.isArray(target[k])) {
+      for (const kk of Object.keys(target[k])) if (!(kk in v)) delete target[k][kk];
+      Object.assign(target[k], v);
+    } else target[k] = v;
+  }
+}
+
+overrides = readOverrides();
+let config;
+try {
+  config = buildWith(overrides);
+} catch (e) {
+  // A bad settings.json must never stop the app: fall back to .env only
+  console.error('settings.json ignored: ' + e.message);
+  overrides = {};
+  config = build();
+}
+SRC = Object.keys(overrides).length ? { ...process.env, ...overrides } : process.env;
+
+function validate({ needShopify = true, needServer = false } = {}, cfg = config) {
+  const config = cfg;
   const errs = [];
   // .env file is optional when settings come from real environment variables (Render, systemd, etc.)
   if (!envLoaded && !process.env.SHOPIFY_STORE) errs.push('.env file not found. Copy .env.example to .env and fill it in.');
@@ -196,4 +285,57 @@ function validate({ needShopify = true, needServer = false } = {}) {
   }
 }
 
-module.exports = { config, validate, normBrand };
+function currentValue(k) {
+  return overrides[k] !== undefined ? overrides[k] : process.env[k] !== undefined ? process.env[k] : '';
+}
+
+function getSettings() {
+  return Object.entries(EDITABLE).map(([key, def]) => ({
+    key,
+    ...def,
+    value: currentValue(key),
+    envValue: process.env[key] !== undefined ? process.env[key] : '',
+    source: overrides[key] !== undefined ? 'dashboard' : 'env',
+  }));
+}
+
+// values: { KEY: 'string' }; reset: [KEY] -> back to .env. Throws with a clear message if invalid.
+function updateSettings(values = {}, reset = []) {
+  const next = { ...overrides };
+  for (const k of reset) delete next[k];
+  for (const [k, raw] of Object.entries(values)) {
+    const def = EDITABLE[k];
+    if (!def) throw new Error(`${k} cannot be changed from the dashboard`);
+    let v = raw === null || raw === undefined ? '' : String(raw).trim();
+    if (def.type === 'bool') v = v === 'true' || v === '1' ? 'true' : 'false';
+    if (def.type === 'number') {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < def.min || n > def.max) throw new Error(`${def.label}: must be a number between ${def.min} and ${def.max}`);
+      v = String(Math.round(n));
+    }
+    if (def.type === 'time' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) throw new Error(`${def.label}: use HH:MM, e.g. 02:00`);
+    if (def.type === 'select' && !Object.keys(def.options).includes(v)) throw new Error(`${def.label}: invalid choice`);
+    if (k === 'ALERT_WEBHOOK_URL' && v && !/^https:\/\//.test(v)) throw new Error('Alert webhook URL must start with https://');
+    // same as .env -> no override needed
+    if ((process.env[k] || '') === v) delete next[k];
+    else next[k] = v;
+  }
+  const fresh = buildWith(next); // throws on parse errors (map formats)
+  validate({ needShopify: false }, fresh); // throws on rule errors
+  const changes = {};
+  for (const k of Object.keys(EDITABLE)) {
+    const before = currentValue(k);
+    const after = next[k] !== undefined ? next[k] : process.env[k] !== undefined ? process.env[k] : '';
+    if (before !== after) changes[k] = { from: before, to: after };
+  }
+  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+  const tmp = SETTINGS_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, SETTINGS_FILE);
+  overrides = next;
+  SRC = Object.keys(overrides).length ? { ...process.env, ...overrides } : process.env;
+  assignInto(config, fresh);
+  return changes;
+}
+
+module.exports = { config, validate, normBrand, getSettings, updateSettings, EDITABLE, overridesActive: () => Object.keys(overrides) };

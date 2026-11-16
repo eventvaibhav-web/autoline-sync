@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Autoline → Shopify Sync</title>
+<style>
+:root{
+  --bg:#f6f7f9;--panel:#fff;--ink:#14171f;--muted:#667085;--line:#e6e8ec;--soft:#f2f4f7;
+  --brand:#2f5bea;--brand-ink:#fff;--ok:#12805c;--ok-bg:#e7f6ef;--warn:#9a6700;--warn-bg:#fff6dd;
+  --bad:#b42318;--bad-bg:#fdecea;--info:#1f4fd1;--info-bg:#e9efff;--radius:12px;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+a{color:var(--brand)}
+button{font:inherit;cursor:pointer}
+.top{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.top-in{max-width:1400px;margin:auto;padding:12px 24px;display:flex;align-items:center;gap:16px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+.logo i{width:28px;height:28px;border-radius:8px;background:var(--brand);display:grid;place-items:center;color:#fff;font-style:normal;font-size:14px}
+.store{color:var(--muted);font-size:13px}
+.sp{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--soft);color:var(--muted)}
+.pill.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}.pill.info{background:var(--info-bg);color:var(--info)}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:8px;font-weight:600}
+.btn:hover{background:var(--soft)}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.btn.primary:hover{filter:brightness(.95)}
+.btn.sm{padding:5px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:default}
+.tabs{max-width:1400px;margin:auto;padding:0 24px;display:flex;gap:4px}
+.tab{border:0;background:none;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid transparent}
+.tab.on{color:var(--ink);border-bottom-color:var(--brand)}
+.tab .n{margin-left:6px;font-size:11px;background:var(--soft);padding:1px 7px;border-radius:999px}
+main{max-width:1400px;margin:auto;padding:20px 24px 80px}
+.banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;margin-bottom:10px;font-weight:500}
+.banner.warn{background:var(--warn-bg);color:var(--warn)}.banner.bad{background:var(--bad-bg);color:var(--bad)}
+.grid{display:grid;gap:14px}
+.g5{grid-template-columns:repeat(5,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:1000px){.g5,.g3{grid-template-columns:repeat(2,minmax(0,1fr))}.g2{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.kpi{padding:16px}
+.kpi .k{color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.kpi .v{font-size:26px;font-weight:700;margin-top:6px}
+.kpi .s{color:var(--muted);font-size:12px;margin-top:2px}
+.sec{padding:16px 18px}
+.sec h3{margin:0 0 12px;font-size:14px}
+.kv{display:grid;grid-template-columns:200px 1fr;gap:8px 12px;font-size:13px}
+.kv div:nth-child(odd){color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:var(--panel);padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--muted)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.input,select,textarea{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;font:inherit;color:var(--ink)}
+.input:focus,select:focus,textarea:focus{outline:2px solid var(--info-bg);border-color:var(--brand)}
+.search{min-width:280px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);background:#fafbfc;position:sticky;top:0}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+tr:last-child td{border-bottom:0}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.muted{color:var(--muted)}.small{font-size:12px}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+.b-changed{background:var(--info-bg);color:var(--info)}.b-unchanged{background:var(--soft);color:var(--muted)}
+.b-skipped{background:var(--warn-bg);color:var(--warn)}.b-error{background:var(--bad-bg);color:var(--bad)}
+.loc{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+.loc b{font-weight:600}
+.tablewrap{overflow:auto;max-height:70vh}
+.more{padding:12px;text-align:center}
+.lv-change{color:var(--info);font-weight:600}.lv-warn,.lv-skip{color:var(--warn);font-weight:600}.lv-error,.lv-alert{color:var(--bad);font-weight:700}
+.logd{white-space:pre-wrap;word-break:break-all}
+/* settings */
+.set-group{margin-bottom:16px}
+.set-group h3{margin:0;padding:14px 18px;border-bottom:1px solid var(--line);font-size:14px}
+.field{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,1.4fr);gap:16px;padding:14px 18px;border-bottom:1px solid var(--line);align-items:center}
+.field:last-child{border-bottom:0}
+.field .lbl{font-weight:600}
+.field .meta{font-size:12px;color:var(--muted);margin-top:3px}
+.field .ctl{display:flex;gap:10px;align-items:center}
+.field .ctl .input,.field .ctl select,.field .ctl textarea{width:100%}
+.field.dirty{background:#fbfcff}
+.field.dirty .lbl::after{content:" • unsaved";color:var(--brand);font-size:12px;font-weight:600}
+.src{font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.src.dash{background:var(--info-bg);color:var(--info)}
+.linkbtn{border:0;background:none;color:var(--brand);font-size:12px;padding:0}
+.switch{position:relative;width:42px;height:24px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:#d0d5dd;border-radius:999px;transition:.15s}
+.switch span::before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.switch input:checked+span{background:var(--brand)}
+.switch input:checked+span::before{transform:translateX(18px)}
+.savebar{position:fixed;left:0;right:0;bottom:0;background:var(--ink);color:#fff;z-index:30;display:none}
+.savebar.show{display:block}
+.savebar .in{max-width:1400px;margin:auto;padding:12px 24px;display:flex;gap:12px;align-items:center}
+.savebar .btn{border-color:#444;background:#2a2f3a;color:#fff}
+.savebar .btn.primary{background:var(--brand);border-color:var(--brand)}
+.err{background:var(--bad-bg);color:var(--bad);padding:10px 14px;border-radius:8px;margin-bottom:12px;display:none}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:#fff;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);display:none;z-index:40}
+.hide{display:none!important}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="logo"><i>⇄</i>Autoline → Shopify</div>
+    <span class="store" id="store"></span>
+    <div class="sp"></div>
+    <span class="pill dot" id="statePill">Loading…</span>
+    <button class="btn primary" id="syncAll">Refresh all now</button>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab on" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="products">Products<span class="n" id="nProducts">0</span></button>
+    <button class="tab" data-tab="reports">Reports</button>
+    <button class="tab" data-tab="logs">Logs</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+</header>
+
+<main>
+  <div id="banners"></div>
+
+  <!-- OVERVIEW -->
+  <section id="tab-overview">
+    <div class="grid g5" id="kpis"></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card sec"><h3>Sync status</h3><div class="kv" id="kvStatus"></div></div>
+      <div class="card sec"><h3>Current settings</h3><div class="kv" id="kvConfig"></div>
+        <div style="margin-top:12px"><button class="linkbtn" data-goto="settings">Change settings →</button></div></div>
+    </div>
+    <div class="card sec" style="margin-top:14px">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px"><h3 style="margin:0">Pickup order checks</h3><div class="sp"></div>
+        <input class="input" id="pkOrder" placeholder="Order no. e.g. 1001" style="width:170px"><button class="btn sm" id="pkBtn">Re-check</button></div>
+      <div class="small muted" id="pkInfo" style="margin-bottom:8px"></div>
+      <div class="tablewrap" style="max-height:320px"><table><thead><tr><th>Time</th><th>Order</th><th>Result</th><th>Lines (ordered / Autoline)</th></tr></thead><tbody id="pkRows"></tbody></table></div>
+    </div>
+    <div class="card sec" style="margin-top:14px"><h3>Last business report</h3><div id="reportChips" class="chips"></div>
+      <div class="small muted" style="margin-top:8px" id="reportAt"></div></div>
+  </section>
+
+  <!-- PRODUCTS -->
+  <section id="tab-products" class="hide">
+    <div class="toolbar">
+      <input class="input search" id="pSearch" placeholder="Search SKU, part number, product, note…">
+      <div class="chips" id="pFilters"></div>
+    </div>
+    <div class="card">
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Shopify SKU</th><th>Autoline part</th><th>Product</th><th>Price1</th><th>Stock (Shopify → Autoline)</th><th>Result</th><th>Changes / note</th><th>Last sync</th><th></th></tr></thead>
+          <tbody id="parts"></tbody>
+        </table>
+      </div>
+      <div class="more small muted" id="pMore"></div>
+    </div>
+  </section>
+
+  <!-- REPORTS -->
+  <section id="tab-reports" class="hide">
+    <div class="card sec">
+      <h3>Daily reports</h3>
+      <p class="small muted" style="margin-top:0">Written by the nightly reconciliation. Lists UNMAPPED, NOT_FOUND, BLOCKED, DUPLICATE_SKU, PRICE_SWING, SUPERSEDED and NOT_IN_SHOPIFY parts.</p>
+      <div id="reportList"></div>
+    </div>
+  </section>
+
+  <!-- LOGS -->
+  <section id="tab-logs" class="hide">
+    <div class="toolbar">
+      <select id="logDate"><option value="">Live (recent)</option></select>
+      <select id="logLevel"><option value="">All levels</option><option>change</option><option>skip</option><option>warn</option><option>error</option><option>alert</option><option>info</option></select>
+      <input class="input search" id="logSearch" placeholder="Search SKU / event">
+    </div>
+    <div class="card"><div class="tablewrap"><table>
+      <thead><tr><th style="width:170px">Time</th><th style="width:80px">Level</th><th style="width:230px">Event</th><th>Details</th></tr></thead>
+      <tbody id="logs"></tbody>
+    </table></div></div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-settings" class="hide">
+    <div class="err" id="setErr"></div>
+    <p class="small muted" style="margin-top:0">Changes apply immediately, no restart needed. Values changed here are saved in <span class="mono">settings.json</span> and win over <span class="mono">.env</span>. Passwords, tokens, URLs and the port stay in <span class="mono">.env</span> only.</p>
+    <div id="settings"></div>
+  </section>
+</main>
+
+<div class="savebar" id="savebar"><div class="in">
+  <span id="saveTxt">Unsaved changes</span><div class="sp"></div>
+  <button class="btn" id="discard">Discard</button>
+  <button class="btn primary" id="save">Save changes</button>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+const H = { 'x-admin-token': token, 'Content-Type': 'application/json' };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const t = (s) => (s ? new Date(s).toLocaleString() : '—');
+async function api(p, opt = {}) {
+  const r = await fetch(p, { headers: H, ...opt });
+  let j = {};
+  try { j = await r.json(); } catch {}
+  if (!r.ok && !j.error) j.error = 'HTTP ' + r.status;
+  return j;
+}
+function toast(msg) { const el = $('toast'); el.textContent = msg; el.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => (el.style.display = 'none'), 3000); }
+
+// ---------- tabs ----------
+let tab = (location.hash || '#overview').slice(1);
+function showTab(name) {
+  tab = name;
+  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('main > section').forEach((s) => s.classList.toggle('hide', s.id !== 'tab-' + name));
+  history.replaceState(null, '', location.pathname + location.search + '#' + name);
+  if (name === 'logs') loadLogs();
+  if (name === 'settings') loadSettings();
+}
+document.querySelectorAll('.tab').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) showTab(g.dataset.goto); });
+
+// ---------- status ----------
+let S = null;
+let pFilter = 'all';
+let pLimit = 200;
+async function refresh() {
+  const s = await api('/api/status');
+  if (s.error) { $('statePill').className = 'pill dot bad'; $('statePill').textContent = s.error; return; }
+  S = s;
+  const c = s.config;
+  $('store').textContent = c.store;
+  const pill = $('statePill');
+  if (s.running) { pill.className = 'pill dot info'; pill.textContent = 'Syncing (' + s.running.mode + ')…'; }
+  else if (s.autoline.downSince) { pill.className = 'pill dot bad'; pill.textContent = 'Autoline down'; }
+  else if (c.dryRun) { pill.className = 'pill dot warn'; pill.textContent = 'Dry run' + (c.autoSync ? '' : ' · auto sync off'); }
+  else if (!c.autoSync) { pill.className = 'pill dot info'; pill.textContent = 'Live · manual only'; }
+  else { pill.className = 'pill dot ok'; pill.textContent = 'Live'; }
+  $('syncAll').disabled = !!s.running;
+
+  const b = [];
+  if (c.dryRun) b.push('<div class="banner warn">Dry run is ON: the app only shows what would change. Nothing is written to Shopify. <button class="linkbtn" data-goto="settings">Turn off in Settings</button></div>');
+  if (!c.autoSync) b.push('<div class="banner warn">Automatic sync is OFF: nothing runs on its own. Only products you Refresh are synced. <button class="linkbtn" data-goto="settings">Change</button></div>');
+  if (s.autoline.downSince) b.push('<div class="banner bad">Autoline unreachable since ' + t(s.autoline.downSince) + '. Shopify values are kept unchanged.</div>');
+  if (s.listError) b.push('<div class="banner bad">' + esc(s.listError) + '</div>');
+  if (s.lastRun && s.lastRun.errors) b.push('<div class="banner bad">Last run had ' + s.lastRun.errors + ' error(s). See Logs.</div>');
+  if (s.lastRun && s.lastRun.fatal) b.push('<div class="banner bad">' + esc(s.lastRun.fatal) + '</div>');
+  $('banners').innerHTML = b.join('');
+
+  const lr = s.lastRun || {};
+  const parts = s.parts || [];
+  const kp = [
+    ['Products', parts.length, c.partsSource === 'tag' ? 'tag ' + c.syncTag : 'parts-list.csv'],
+    ['Changed', lr.changed ?? '—', 'last run'],
+    ['Unchanged', lr.unchanged ?? '—', 'last run'],
+    ['Skipped', lr.skipped ?? '—', 'see Products / Reports'],
+    ['Errors', lr.errors ?? '—', lr.durationMs ? 'run took ' + Math.round(lr.durationMs / 1000) + ' s' : ''],
+  ];
+  $('kpis').innerHTML = kp.map(([k, v, sub]) => '<div class="card kpi"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(sub) + '</div></div>').join('');
+
+  const rc = s.lastReconciliation || {};
+  $('kvStatus').innerHTML = [
+    ['Last run', t(lr.finishedAt)],
+    ['Next scheduled run', c.autoSync ? t(s.nextScheduledAt) : 'Automatic sync OFF (manual only)'],
+    ['Sync interval', c.intervalMinutes + ' minutes'],
+    ['Nightly reconciliation', c.reconciliationTime + ' (' + c.timezone + '), last: ' + t(rc.finishedAt)],
+    ['Autoline last OK', t(s.autoline.lastSuccessAt)],
+    ['Drafted by app', Object.keys(s.draftedByApp || {}).length],
+  ].map(([k, v]) => '<div>' + esc(k) + '</div><div>' + esc(v) + '</div>').join('');
+
+  const locs = (c.locationStockMap || []).map((m) => m.rooftopId + (c.outletRooftops.includes(m.rooftopId) ? ' (outlet)' : '')).join(', ') || 'single location';
+  $('kvConfig').innerHTML = [
+    ['Mode', (c.dryRun ? 'Dry run' : 'Live (writes to Shopify)') + (c.autoSync ? ', automatic' : ', manual only')],
+    ['Main rooftop', c.rooftopId],
+    ['Stock locations', locs],
+    ['Stock quantity', c.stockSource],
+    ['Selling price', c.priceMode === 'price1' ? 'Price1 only' : 'Price1 + specialPrice'],
+    ['Parts list', c.partsSource === 'tag' ? 'Shopify tag "' + c.syncTag + '"' : 'parts-list.csv'],
+    ['blockSale = Y', c.blockSaleAction === 'draft' ? 'Draft product' : 'Stock 0 + tag'],
+    ['Delivery-only outlets', c.deliveryOnlyAction === 'deactivate' ? 'Deactivate inventory' : 'Stock 0'],
+    ['Description sync', c.descriptionSync ? 'ON' : 'OFF'],
+    ['Changed in dashboard', (c.overrides || []).join(', ') || 'none'],
+  ].map(([k, v]) => '<div>' + esc(k) + '</div><div>' + esc(v) + '</div>').join('');
+
+  const rep = s.lastReport;
+  $('reportChips').innerHTML = rep ? (Object.entries(rep.counts).map(([k, n]) => '<span class="chip">' + esc(k) + ' · ' + n + '</span>').join('') || '<span class="chip">Clean, nothing to report</span>') : '<span class="muted small">No report yet.</span>';
+  $('reportAt').textContent = rep ? 'From ' + rep.mode + ' run at ' + t(rep.at) : '';
+
+  $('reportList').innerHTML = (s.reports || []).length
+    ? '<table><thead><tr><th>File</th><th></th></tr></thead><tbody>' + s.reports.map((r) => '<tr><td class="mono">' + esc(r) + '</td><td style="text-align:right"><a class="btn sm" href="/api/report?name=' + encodeURIComponent(r) + '&token=' + encodeURIComponent(token) + '">Download CSV</a></td></tr>').join('') + '</tbody></table>'
+    : '<div class="empty">No report yet. Reports are written by the nightly reconciliation (or <span class="mono">npm run reconcile</span>).</div>';
+
+  $('pkInfo').innerHTML = !c.pickupRecheck ? 'Pickup re-check is OFF (Settings).' : !c.webhookSecretSet ? 'Webhook secret not set: automatic checks on new orders are off. You can still re-check an order by number.' : 'New pickup orders are checked automatically (orders/create webhook).';
+  const pk = s.pickupChecks || [];
+  $('pkRows').innerHTML = pk.map((r) => {
+    const st = !r.pickup ? '<span class="badge b-unchanged">not pickup</span>' : r.short ? '<span class="badge b-error">SHORT</span>' : r.problems.length ? '<span class="badge b-skipped">check</span>' : '<span class="badge b-changed">OK</span>';
+    const lines = (r.lines || []).map((l) => esc(l.sku) + ' @ ' + esc(l.location) + ': ' + l.ordered + ' / ' + (l.autolineQty ?? '?') + (l.note ? ' (' + esc(l.note) + ')' : '')).join('<br>');
+    return '<tr><td class="small">' + t(r.at) + '</td><td class="mono">' + esc(r.order) + '<div class="small muted">' + esc(r.trigger) + '</div></td><td>' + st + '</td><td class="small">' + (lines || '—') + '</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="empty">No pickup orders checked yet.</td></tr>';
+
+  $('nProducts').textContent = parts.length;
+  renderParts();
+}
+
+// ---------- products ----------
+function rowMatches(p, q) {
+  if (pFilter !== 'all' && (p.result || 'pending') !== pFilter) return false;
+  if (!q) return true;
+  return [p.sku, p.partNumber, p.title, p.note, (p.changes || []).join(' '), p.vendor].join(' ').toLowerCase().includes(q);
+}
+function renderParts() {
+  if (!S) return;
+  const parts = S.parts || [];
+  const counts = { all: parts.length, changed: 0, unchanged: 0, skipped: 0, error: 0 };
+  parts.forEach((p) => { if (counts[p.result] !== undefined) counts[p.result]++; });
+  $('pFilters').innerHTML = ['all', 'changed', 'unchanged', 'skipped', 'error'].map((f) => '<button class="chip' + (pFilter === f ? ' on' : '') + '" data-f="' + f + '">' + f[0].toUpperCase() + f.slice(1) + ' · ' + counts[f] + '</button>').join('');
+  const q = $('pSearch').value.trim().toLowerCase();
+  const rows = parts.filter((p) => rowMatches(p, q));
+  const shown = rows.slice(0, pLimit);
+  $('parts').innerHTML = shown.map((p) => {
+    const a = p.autoline || {};
+    const stocks = (p.stocks || []).map((x) => '<div class="loc"><span>' + esc(x.location) + '</span><b>' + (x.shopify ?? '—') + ' → ' + (x.target ?? '—') + '</b></div>' + (x.note ? '<div class="small muted">' + esc(x.note) + '</div>' : '')).join('');
+    return '<tr>' +
+      '<td class="mono">' + esc(p.sku) + '</td>' +
+      '<td class="mono">' + esc(p.partNumber || '—') + (p.keyVia ? '<div class="small muted">via ' + esc(p.keyVia) + '</div>' : '') + '</td>' +
+      '<td>' + esc(p.title || '') + (p.vendor ? '<div class="small muted">' + esc(p.vendor) + '</div>' : '') + (p.deliveryOnly ? '<div><span class="badge b-skipped">Delivery only</span></div>' : '') + '</td>' +
+      '<td>' + (p.autoline ? esc(a.price1) + (a.specialPrice > 0 ? '<div class="small muted">special ' + esc(a.specialPrice) + '</div>' : '') + (a.blockSale === 'Y' ? '<div><span class="badge b-error">blockSale</span></div>' : '') : '—') + '</td>' +
+      '<td style="min-width:240px">' + (stocks || '—') + '</td>' +
+      '<td>' + (p.result ? '<span class="badge b-' + esc(p.result) + '">' + esc(p.result) + '</span>' : '<span class="muted small">pending</span>') + '</td>' +
+      '<td class="small" style="max-width:320px">' + esc((p.changes || []).join(', ')) + (p.note ? '<div class="muted">' + esc(p.note) + '</div>' : '') + '</td>' +
+      '<td class="small muted">' + t(p.at) + '</td>' +
+      '<td><button class="btn sm" data-sku="' + esc(p.sku) + '"' + (S.running ? ' disabled' : '') + '>Refresh</button></td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="9" class="empty">No products match.</td></tr>';
+  $('pMore').innerHTML = rows.length > shown.length ? 'Showing ' + shown.length + ' of ' + rows.length + ' <button class="linkbtn" id="moreBtn">Show more</button>' : rows.length + ' product(s)';
+}
+$('pSearch').oninput = () => { pLimit = 200; renderParts(); };
+$('pFilters').onclick = (e) => { const b = e.target.closest('[data-f]'); if (b) { pFilter = b.dataset.f; pLimit = 200; renderParts(); } };
+$('pMore').onclick = (e) => { if (e.target.id === 'moreBtn') { pLimit += 200; renderParts(); } };
+$('parts').onclick = async (e) => {
+  const b = e.target.closest('[data-sku]'); if (!b) return;
+  b.disabled = true;
+  const r = await api('/api/sync', { method: 'POST', body: JSON.stringify({ sku: b.dataset.sku }) });
+  toast(r.error ? r.error : 'Refreshing ' + b.dataset.sku + '…');
+  setTimeout(tick, 1500);
+};
+$('syncAll').onclick = async () => {
+  const r = await api('/api/sync', { method: 'POST', body: '{}' });
+  toast(r.error ? r.error : 'Full sync started');
+  setTimeout(tick, 1000);
+};
+
+$('pkBtn').onclick = async () => {
+  const order = $('pkOrder').value.trim(); if (!order) return;
+  $('pkBtn').disabled = true;
+  const r = await api('/api/pickup-recheck', { method: 'POST', body: JSON.stringify({ order }) });
+  $('pkBtn').disabled = false;
+  toast(r.error ? r.error : (r.order + ': ' + (!r.pickup ? 'not a pickup order' : r.short ? 'SHORT, order tagged' : 'OK')));
+  refresh();
+};
+
+// ---------- logs ----------
+let logDatesLoaded = false;
+async function loadLogs() {
+  const d = $('logDate').value;
+  const r = await api('/api/logs?limit=1000' + (d ? '&date=' + d : ''));
+  if (!logDatesLoaded && r.dates) { r.dates.forEach((x) => $('logDate').add(new Option(x, x))); logDatesLoaded = true; }
+  const lv = $('logLevel').value, q = $('logSearch').value.toLowerCase();
+  const rows = (r.entries || []).filter((e) => (!lv || e.level === lv) && (!q || JSON.stringify(e).toLowerCase().includes(q))).slice(0, 400);
+  $('logs').innerHTML = rows.map((e) => { const { ts, level, event, ...rest } = e;
+    return '<tr><td class="small">' + t(ts) + '</td><td class="lv-' + esc(level) + '">' + esc(level) + '</td><td>' + esc(event) + '</td><td class="mono small logd">' + esc(JSON.stringify(rest)) + '</td></tr>'; }).join('') || '<tr><td colspan="4" class="empty">No log entries.</td></tr>';
+}
+['logDate', 'logLevel'].forEach((id) => ($(id).onchange = loadLogs));
+$('logSearch').oninput = loadLogs;
+
+// ---------- settings ----------
+let SET = [];
+let dirty = {};
+async function loadSettings() {
+  if (Object.keys(dirty).length) return; // don't wipe unsaved edits
+  const r = await api('/api/settings');
+  if (r.error) { showErr(r.error); return; }
+  SET = r.settings;
+  renderSettings();
+}
+function showErr(msg) { const el = $('setErr'); el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
+function ctl(f) {
+  const v = dirty[f.key] !== undefined ? dirty[f.key] : f.value;
+  const id = 'f_' + f.key;
+  if (f.type === 'bool') return '<label class="switch"><input type="checkbox" id="' + id + '" data-k="' + f.key + '"' + (String(v) === 'true' ? ' checked' : '') + '><span></span></label><span class="small muted">' + (String(v) === 'true' ? 'ON' : 'OFF') + '</span>';
+  if (f.type === 'select') return '<select id="' + id + '" data-k="' + f.key + '">' + Object.entries(f.options).map(([k, l]) => '<option value="' + esc(k) + '"' + (k === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('') + '</select>';
+  if (f.type === 'textarea') return '<textarea id="' + id + '" data-k="' + f.key + '" rows="2">' + esc(v) + '</textarea>';
+  if (f.type === 'number') return '<input class="input" type="number" id="' + id + '" data-k="' + f.key + '" min="' + f.min + '" max="' + f.max + '" value="' + esc(v) + '">';
+  return '<input class="input" type="text" id="' + id + '" data-k="' + f.key + '" value="' + esc(v) + '"' + (f.type === 'time' ? ' placeholder="02:00"' : '') + '>';
+}
+function renderSettings() {
+  const groups = {};
+  SET.forEach((f) => (groups[f.group] = groups[f.group] || []).push(f));
+  $('settings').innerHTML = Object.entries(groups).map(([g, fs]) => '<div class="card set-group"><h3>' + esc(g) + '</h3>' + fs.map((f) =>
+    '<div class="field' + (dirty[f.key] !== undefined ? ' dirty' : '') + '"><div><div class="lbl">' + esc(f.label) + '</div><div class="meta"><span class="mono">' + esc(f.key) + '</span> · ' +
+    (f.source === 'dashboard' ? '<span class="src dash">changed here</span> <button class="linkbtn" data-reset="' + f.key + '">reset to .env' + (f.envValue !== '' ? ' (' + esc(f.envValue.length > 30 ? f.envValue.slice(0, 30) + '…' : f.envValue) + ')' : '') + '</button>' : '<span class="src">from .env</span>') +
+    '</div></div><div class="ctl">' + ctl(f) + '</div></div>').join('') + '</div>').join('');
+  updateSavebar();
+}
+function onEdit(el) {
+  const k = el.dataset.k; if (!k) return;
+  const f = SET.find((x) => x.key === k);
+  const v = el.type === 'checkbox' ? String(el.checked) : el.value;
+  const orig = f.type === 'bool' ? String(f.value === 'true') : f.value;
+  if (v === orig) delete dirty[k]; else dirty[k] = v;
+  if (el.type === 'checkbox') el.parentElement.nextElementSibling.textContent = el.checked ? 'ON' : 'OFF';
+  el.closest('.field').classList.toggle('dirty', dirty[k] !== undefined);
+  updateSavebar();
+}
+$('settings').addEventListener('input', (e) => onEdit(e.target));
+$('settings').addEventListener('change', (e) => onEdit(e.target));
+$('settings').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-reset]'); if (!b) return;
+  if (!confirm('Reset ' + b.dataset.reset + ' to the value in .env?')) return;
+  await saveSettings({}, [b.dataset.reset]);
+});
+function updateSavebar() {
+  const n = Object.keys(dirty).length;
+  $('savebar').classList.toggle('show', n > 0);
+  $('saveTxt').textContent = n + ' unsaved change' + (n === 1 ? '' : 's');
+}
+$('discard').onclick = () => { dirty = {}; showErr(''); renderSettings(); };
+$('save').onclick = async () => {
+  if (dirty.DRY_RUN === 'false' && !confirm('Turn OFF dry run?\n\nThe app will start WRITING price, stock and status changes to Shopify.')) return;
+  await saveSettings(dirty, []);
+};
+async function saveSettings(values, reset) {
+  $('save').disabled = true;
+  const r = await api('/api/settings', { method: 'POST', body: JSON.stringify({ values, reset }) });
+  $('save').disabled = false;
+  if (r.error) { showErr(r.error); return; }
+  showErr('');
+  dirty = {};
+  SET = r.settings;
+  renderSettings();
+  const n = Object.keys(r.changes || {}).length;
+  toast(n ? 'Saved ' + n + ' setting' + (n === 1 ? '' : 's') + '. Applied immediately.' : 'Nothing changed');
+  refresh();
+}
+
+// ---------- loop ----------
+async function tick() {
+  try { await refresh(); if (tab === 'logs') await loadLogs(); } catch (e) { console.error(e); }
+}
+showTab(['overview', 'products', 'reports', 'logs', 'settings'].includes(tab) ? tab : 'overview');
+tick();
+setInterval(tick, 10000);
+</script>
+</body>
+</html>

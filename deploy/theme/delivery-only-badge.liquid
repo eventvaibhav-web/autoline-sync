@@ -1,0 +1,17 @@
+{%- comment -%}
+  "Delivery only" label for the product page (design doc: scope item 4, section 12).
+  The sync app sets the product metafield ehastock.delivery_only = true for delivery-only products.
+
+  Install (no theme code edit needed):
+    Shopify admin → Online Store → Themes → Customize
+    → top dropdown: Products → Default product
+    → in the product information section: Add block → Custom Liquid
+    → paste this whole file → move the block under the price / Add to cart → Save
+{%- endcomment -%}
+{%- if product.metafields.ehastock.delivery_only.value == true -%}
+  <div class="eha-delivery-only" role="note"
+       style="display:flex;gap:8px;align-items:center;margin:12px 0;padding:10px 12px;border-radius:8px;background:#fff6dd;color:#7a5200;font-size:14px;line-height:1.4;">
+    <span aria-hidden="true">🚚</span>
+    <span><strong>Delivery only</strong> – this product cannot be collected from Manama or Gudaibiya showroom.</span>
+  </div>
+{%- endif -%}

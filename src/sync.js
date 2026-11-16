@@ -85,7 +85,8 @@ async function getPartsList() {
 }
 
 // ---------- Franchise key ----------
-// Order (design doc section 7): explicit Autoline number (CSV) -> product metafield autoline.franchise_code
+// Order (design doc section 7): variant metafield autoline.part_number (full Autoline number, any SKU)
+// -> explicit Autoline number (CSV) -> product metafield autoline.franchise_code
 // -> brand (Vendor) in franchise master (metaobject + FRANCHISE_MAP) with exactly one code -> UNMAPPED.
 async function loadFranchiseIndex(ctx) {
   const idx = {};
@@ -109,6 +110,7 @@ async function loadFranchiseIndex(ctx) {
 }
 
 function resolveKey(item, v, ctx) {
+  if (v.partNumberOverride) return { partNumber: v.partNumberOverride, via: 'variant_metafield' };
   if (item.partNumber) return { partNumber: item.partNumber, via: 'list' };
   const sku = v.sku || item.sku;
   if (v.product.franchiseCode) return { partNumber: v.product.franchiseCode + sku, via: 'product_metafield', code: v.product.franchiseCode };
@@ -273,8 +275,23 @@ async function processPart(item, state, ctx) {
   snap.keyVia = key.via;
 
   // 3) Main rooftop (price, blockSale, website stock)
-  const main = await loadFromRooftop(key.partNumber, config.autoline.rooftopId, ctx, base);
+  let main = await loadFromRooftop(key.partNumber, config.autoline.rooftopId, ctx, base);
   if (main.down) return skip('Autoline unreachable - Shopify left unchanged');
+  // SKU already carries the franchise code (e.g. Panasonic PANC-K101WTZ): try the SKU as-is
+  const skuU = (v.sku || sku).toUpperCase();
+  if (!main.part.found && key.code && skuU.startsWith(key.code) && skuU !== key.partNumber) {
+    const alt = await loadFromRooftop(skuU, config.autoline.rooftopId, ctx, base);
+    if (alt.down) return skip('Autoline unreachable - Shopify left unchanged');
+    if (alt.part.found) {
+      logger.info('key_sku_already_has_code', { ...base, tried: key.partNumber, used: skuU });
+      main = alt;
+      key.partNumber = skuU;
+      key.via += ' (SKU has code)';
+      base.partNumber = skuU;
+      snap.partNumber = skuU;
+      snap.keyVia = key.via;
+    }
+  }
   const part = main.part;
   if (!part.found) {
     logger.skip('part_not_found_in_autoline', { ...base, rooftopId: part.rooftopId, errorMessage: part.errorMessage, errorCode: part.errorCode });
@@ -584,7 +601,7 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
   return summary;
 }
 
-module.exports = { runSync, isRunning, loadState, saveState, readPartsList, getPartsList, desiredPrices, resolveKey, listReports, readReport };
+module.exports = { runSync, isRunning, loadState, saveState, readPartsList, getPartsList, desiredPrices, resolveKey, loadFranchiseIndex, listReports, readReport };
 
 // ---------- CLI ----------
 if (require.main === module) {

@@ -75,6 +75,24 @@ Store ki koi aur setting / data app nahi chhoota.
 
 **Shopify scopes needed now:** `read_products, write_products, read_inventory, write_inventory, read_locations, read_metaobjects`.
 
+## Dashboard settings (v1.2)
+Dashboard → **Settings** tab: toggles and fields for dry run, description sync, price rule, parts source, franchise map,
+locations, blockSale action, delivery-only, intervals and alerts. Changes apply immediately (no restart) and are saved
+in `settings.json` (next to `state.json`). A value changed in the dashboard wins over `.env`; "reset to .env" removes it.
+Secrets (Shopify token, ADMIN_TOKEN), URLs, port and host stay in `.env` only. Every change is logged (`settings_changed`).
+
+## Pickup order re-check (v1.3, design doc BR-08)
+When an order with local pickup is created, Shopify calls `/webhooks/orders-create`. The app reads the outlet stock
+again from Autoline (SOE4P_PH / SOE3P_PH) for every line. If the outlet is short, the order gets the tag
+`pickup-stock-alert` and an alert is sent. Only order id/number, pickup location and SKU/qty are stored (`pickup.json`).
+- Needs a public HTTPS URL (Render/server) and `SHOPIFY_WEBHOOK_SECRET` (the app's API secret key) in `.env`.
+- Shopify app scopes: add `read_orders`, `write_orders`, `read_merchant_managed_fulfillment_orders`.
+- Register: `npm run register-webhook -- https://YOUR-APP-URL`
+- Check one order by hand (works on the laptop too): `npm run recheck-order -- 1001` or dashboard → Overview → Pickup order checks.
+
+## "Delivery only" label
+`deploy/theme/delivery-only-badge.liquid` → paste into a Custom Liquid block on the product page (instructions inside the file).
+
 ## Commands
 | Command | Kaam |
 |---|---|

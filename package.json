@@ -13,7 +13,11 @@
     "sync-part": "node src/sync.js --part",
     "reconcile": "node src/sync.js --reconcile",
     "test-autoline": "node scripts/test-autoline.js",
-    "test-shopify": "node scripts/test-shopify.js"
+    "test-shopify": "node scripts/test-shopify.js",
+    "find-parts": "node scripts/find-parts.js",
+    "pickup-check": "node src/pickup.js",
+    "recheck-order": "node src/pickup.js",
+    "register-webhook": "node scripts/register-webhook.js"
   },
   "dependencies": {}
 }

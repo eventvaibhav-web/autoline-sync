@@ -102,6 +102,9 @@ async function getShopInfo() {
 // Which Shopify location gets stock from which Autoline rooftop.
 // LOCATION_STOCK_MAP wins; otherwise main rooftop -> SHOPIFY_LOCATION_ID (or the only active location).
 let cachedTargets = null;
+function resetCaches() {
+  cachedTargets = null;
+}
 async function getTargetLocations() {
   if (cachedTargets) return cachedTargets;
   const { locations } = await getShopInfo();
@@ -136,6 +139,7 @@ async function getTargetLocations() {
 const VARIANT_FIELDS = `
   id sku price compareAtPrice
   syncStatus: metafield(namespace: "autoline", key: "sync_status") { value }
+  partNumberMf: metafield(namespace: "autoline", key: "part_number") { value }
   inventoryItem {
     id tracked
     inventoryLevels(first: 50) { nodes { id location { id name } quantities(names: ["available"]) { name quantity } } }
@@ -159,6 +163,7 @@ function mapVariant(v) {
     price: v.price,
     compareAtPrice: v.compareAtPrice,
     syncStatus: v.syncStatus ? v.syncStatus.value : null,
+    partNumberOverride: v.partNumberMf ? String(v.partNumberMf.value || '').trim().toUpperCase() : '',
     inventoryItemId: v.inventoryItem && v.inventoryItem.id,
     tracked: !!(v.inventoryItem && v.inventoryItem.tracked),
     levels, // locationId -> { id, name, available }  (only locations where the item is stocked)
@@ -349,12 +354,64 @@ async function activateInventory(inventoryItemId, locationId) {
   checkUserErrors('inventoryActivate', d.inventoryActivate);
 }
 
+// ---------- Orders (pickup re-check) ----------
+// Only order id/name, delivery method, location and line items (SKU, qty) are read - no customer data.
+async function getOrderForRecheck(orderId) {
+  const d = await gql(
+    `query($id: ID!) {
+      order(id: $id) {
+        id name tags
+        fulfillmentOrders(first: 10) {
+          nodes {
+            id status
+            deliveryMethod { methodType }
+            assignedLocation { location { id name } }
+            lineItems(first: 100) { nodes { totalQuantity lineItem { sku } } }
+          }
+        }
+      }
+    }`,
+    { id: orderId }
+  );
+  return d.order;
+}
+
+async function findOrderIdByName(name) {
+  const n = String(name).startsWith('#') ? name : '#' + name;
+  const d = await gql(`query($q: String!) { orders(first: 1, query: $q) { nodes { id name } } }`, { q: `name:${n}` });
+  return d.orders.nodes[0] ? d.orders.nodes[0].id : null;
+}
+
+async function listWebhooks() {
+  const d = await gql(`{ webhookSubscriptions(first: 50) { nodes { id topic endpoint { __typename ... on WebhookHttpEndpoint { callbackUrl } } } } }`);
+  return d.webhookSubscriptions.nodes.map((w) => ({ id: w.id, topic: w.topic, url: w.endpoint && w.endpoint.callbackUrl }));
+}
+
+async function createOrdersWebhook(callbackUrl) {
+  const d = await gql(
+    `mutation($url: URL!) {
+      webhookSubscriptionCreate(topic: ORDERS_CREATE, webhookSubscription: { callbackUrl: $url, format: JSON }) {
+        webhookSubscription { id }
+        userErrors { field message }
+      }
+    }`,
+    { url: callbackUrl }
+  );
+  checkUserErrors('webhookSubscriptionCreate', d.webhookSubscriptionCreate);
+  return d.webhookSubscriptionCreate.webhookSubscription.id;
+}
+
 module.exports = {
   gql,
   getShopInfo,
   getTargetLocations,
+  resetCaches,
   findVariantsBySku,
   listTaggedSkus,
+  getOrderForRecheck,
+  findOrderIdByName,
+  listWebhooks,
+  createOrdersWebhook,
   getFranchiseMaster,
   addTags,
   removeTags,
