@@ -23,9 +23,11 @@ async function post(endpoint, extraBody, rooftopId) {
   const a = config.autoline;
   const body = { SessionId: a.sessionId, RooftopId: rooftopId || a.rooftopId, UserId: a.userId, ...extraBody };
   let lastErr;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const delays = a.retryDelaysMs;
+  const attempts = delays.length + 1;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const res = await fetch(`${a.baseUrl}/parts/${endpoint}`, {
+      const res = await fetch(`${a.baseUrl}/${a.partsPath}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...a.extraHeaders },
         body: JSON.stringify(body),
@@ -48,7 +50,7 @@ async function post(endpoint, extraBody, rooftopId) {
       }
     } catch (e) {
       lastErr = e;
-      if (attempt < 3) await sleep(1000 * 2 ** (attempt - 1)); // 1s, 2s
+      if (attempt < attempts) await sleep(delays[attempt - 1]); // default 1s, 4s, 16s
     }
   }
   throw new AutolineUnavailableError(`Autoline ${endpoint} (${rooftopId || a.rooftopId}) failed: ${lastErr.message}`);

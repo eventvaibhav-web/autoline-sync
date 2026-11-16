@@ -60,6 +60,21 @@ Store ki koi aur setting / data app nahi chhoota.
     jahan delivery_only = Y ya N).
     Restart ki zaroorat nahi — agla sync naya list padhta hai.
 
+## Design-doc features (v1.1)
+| Feature | Setting |
+|---|---|
+| Parts list from Shopify tag `autoline-sync` (instead of CSV) | `PARTS_SOURCE=tag` |
+| Autoline key = franchise code + SKU (product metafield `autoline.franchise_code` → brand in metaobject `autoline_franchise` / `FRANCHISE_MAP` → else UNMAPPED) | `FRANCHISE_METAOBJECT_TYPE`, `FRANCHISE_MAP` |
+| blockSale = Y → stock 0 at all locations + tag `autoline-blocked` (reversed on N) | `BLOCK_SALE_ACTION=zero` (or `draft`) |
+| Delivery-only by tag / product type; outlet stock 0 or inventory deactivated; metafield `ehastock.delivery_only` | `DELIVERY_ONLY_TAG`, `DELIVERY_ONLY_PRODUCT_TYPES`, `DELIVERY_ONLY_ACTION` |
+| Variant metafields `autoline.sync_status` (OK / NOT_FOUND / UNMAPPED / BLOCKED) and `autoline.last_synced_at` | `STATUS_METAFIELDS=true` |
+| Daily business report (UNMAPPED, NOT_FOUND, BLOCKED, DUPLICATE_SKU, PRICE_SWING, SUPERSEDED, NOT_IN_SHOPIFY) as CSV, download from dashboard, summary alert | nightly reconciliation |
+| Price swing flag | `PRICE_SWING_PERCENT=50` |
+| Safety buffer per rooftop | `SAFETY_BUFFER=SOE4P_PH=1` |
+| Retries 1 / 4 / 16 seconds | `AUTOLINE_RETRY_DELAYS=1,4,16` |
+
+**Shopify scopes needed now:** `read_products, write_products, read_inventory, write_inventory, read_locations, read_metaobjects`.
+
 ## Commands
 | Command | Kaam |
 |---|---|

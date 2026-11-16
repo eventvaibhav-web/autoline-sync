@@ -54,6 +54,32 @@ function parseMap(raw) {
 // DATA_DIR: where logs/ and state.json live (on Render: the persistent disk, e.g. /var/data)
 const DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || '.');
 
+// "Nikai=NK, Comfee=CO, Toshiba=TA|TH" -> { nikai: ['NK'], comfee: ['CO'], toshiba: ['TA','TH'] }
+function parseFranchiseMap(raw) {
+  const out = {};
+  for (const part of String(raw).split(',')) {
+    const m = part.trim().match(/^(.+?)\s*=\s*([A-Za-z0-9|]+)$/);
+    if (!part.trim()) continue;
+    if (!m) throw new Error(`FRANCHISE_MAP entry is wrong: "${part.trim()}" (use Brand=CODE)`);
+    out[normBrand(m[1])] = m[2].toUpperCase().split('|').filter(Boolean);
+  }
+  return out;
+}
+function normBrand(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+// "SOE4P_PH=1,SOE3P_PH=1" -> { SOE4P_PH: 1, SOE3P_PH: 1 }
+function parseNumMap(raw) {
+  const out = {};
+  for (const part of String(raw).split(',')) {
+    if (!part.trim()) continue;
+    const m = part.trim().match(/^([^=\s]+)\s*=\s*(\d+)$/);
+    if (!m) throw new Error(`SAFETY_BUFFER entry is wrong: "${part.trim()}" (use ROOFTOP=number)`);
+    out[m[1]] = Number(m[2]);
+  }
+  return out;
+}
+
 const config = {
   root: ROOT,
   dataDir: DATA_DIR,
@@ -62,9 +88,13 @@ const config = {
     baseUrl: env('AUTOLINE_BASE_URL', 'https://ykacentralapi.almoayyed.com.bh/prod/api/v1').replace(/\/+$/, ''),
     sessionId: num('AUTOLINE_SESSION_ID', 12345),
     rooftopId: env('AUTOLINE_ROOFTOP_ID', 'SO01P_PH'),
+    // path between base URL and the endpoint name, e.g. "parts/shopify" -> .../parts/shopify/LoadPartsStockRecord
+    partsPath: env('AUTOLINE_PARTS_PATH', 'parts/shopify').replace(/^\/+|\/+$/g, ''),
     userId: env('AUTOLINE_USER_ID', 'ADMIN-YK'),
     extraHeaders: parseJsonEnv('AUTOLINE_EXTRA_HEADERS'),
     timeoutMs: num('AUTOLINE_TIMEOUT_MS', 20000),
+    // wait between retries (seconds); 3 retries = 1, 4, 16 (design doc)
+    retryDelaysMs: env('AUTOLINE_RETRY_DELAYS', '1,4,16').split(',').map((x) => Number(x) * 1000).filter((x) => x >= 0),
   },
   stockSource: env('STOCK_SOURCE', 'total').toLowerCase(),
   descriptionSync: bool('DESCRIPTION_SYNC_ENABLED', false),
@@ -79,6 +109,22 @@ const config = {
     .map((s) => s.trim())
     .filter(Boolean),
   deliveryOnlyTag: env('DELIVERY_ONLY_TAG', 'delivery-only').trim().toLowerCase(),
+  // Product types that are delivery-only (comma separated, case-insensitive)
+  deliveryOnlyTypes: env('DELIVERY_ONLY_PRODUCT_TYPES', '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  // zero = outlet stock 0 (default, reversible) | deactivate = remove outlet inventory (design doc)
+  deliveryOnlyAction: env('DELIVERY_ONLY_ACTION', 'zero').toLowerCase(),
+  // Which parts to sync: csv = parts-list.csv | tag = Shopify products with SYNC_TAG
+  partsSource: env('PARTS_SOURCE', 'csv').toLowerCase(),
+  syncTag: env('SYNC_TAG', 'autoline-sync').trim(),
+  // Franchise key: Autoline part = franchise code + Shopify SKU
+  franchiseMetaobjectType: env('FRANCHISE_METAOBJECT_TYPE', 'autoline_franchise').trim(),
+  franchiseMap: parseFranchiseMap(env('FRANCHISE_MAP', '')),
+  // blockSale = Y: zero = stock 0 everywhere + tag (design doc default) | draft = product to Draft
+  blockSaleAction: env('BLOCK_SALE_ACTION', 'zero').toLowerCase(),
+  blockedTag: env('BLOCKED_TAG', 'autoline-blocked').trim(),
+  statusMetafields: bool('STATUS_METAFIELDS', true),
+  priceSwingPercent: num('PRICE_SWING_PERCENT', 50),
+  safetyBuffer: parseNumMap(env('SAFETY_BUFFER', '')),
   shopify: {
     store: env('SHOPIFY_STORE', '').replace(/^https?:\/\//, '').replace(/\/+$/, ''),
     token: env('SHOPIFY_ADMIN_TOKEN', ''),
@@ -120,6 +166,9 @@ function validate({ needShopify = true, needServer = false } = {}) {
   if (!['total', 'prime1', 'prime1-3'].includes(config.stockSource))
     errs.push('STOCK_SOURCE must be one of: total, prime1, prime1-3');
   if (!['price1', 'price1_special'].includes(config.priceMode)) errs.push('PRICE_MODE must be price1 or price1_special');
+  if (!['csv', 'tag'].includes(config.partsSource)) errs.push('PARTS_SOURCE must be csv or tag');
+  if (!['zero', 'draft'].includes(config.blockSaleAction)) errs.push('BLOCK_SALE_ACTION must be zero or draft');
+  if (!['zero', 'deactivate'].includes(config.deliveryOnlyAction)) errs.push('DELIVERY_ONLY_ACTION must be zero or deactivate');
   const locIds = config.locationStockMap.map((x) => x.locationId);
   if (new Set(locIds).size !== locIds.length) errs.push('LOCATION_STOCK_MAP: one Shopify location is used twice');
   const mapped = config.locationStockMap.map((x) => x.rooftopId);
@@ -147,4 +196,4 @@ function validate({ needShopify = true, needServer = false } = {}) {
   }
 }
 
-module.exports = { config, validate };
+module.exports = { config, validate, normBrand };

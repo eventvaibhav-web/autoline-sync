@@ -5,7 +5,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { config, validate } = require('./config');
 const { logger, readLogFile, listLogDates, cleanupOldLogs } = require('./logger');
-const { runSync, isRunning, loadState, readPartsList } = require('./sync');
+const { runSync, isRunning, loadState, readPartsList, listReports, readReport } = require('./sync');
 
 try {
   validate({ needShopify: true, needServer: true });
@@ -91,7 +91,8 @@ const server = http.createServer(async (req, res) => {
       const state = loadState();
       let list = [];
       let listError = null;
-      try { list = readPartsList(); } catch (e) { listError = e.message; }
+      if (config.partsSource === 'tag') list = Object.values(state.parts).map((p) => ({ sku: p.sku, partNumber: p.partNumber }));
+      else try { list = readPartsList(); } catch (e) { listError = e.message; }
       return send(res, 200, {
         now: new Date().toISOString(),
         running: isRunning(),
@@ -101,12 +102,16 @@ const server = http.createServer(async (req, res) => {
           intervalMinutes: config.sync.intervalMinutes, reconciliationTime: config.sync.reconciliationTime,
           timezone: config.sync.timezone, dryRun: config.sync.dryRun, descriptionSync: config.descriptionSync,
           priceMode: config.priceMode, locationStockMap: config.locationStockMap, outletRooftops: config.outletRooftops,
+          partsSource: config.partsSource, syncTag: config.syncTag, blockSaleAction: config.blockSaleAction,
+          deliveryOnlyAction: config.deliveryOnlyAction,
         },
         autoline: { lastSuccessAt: state.autolineLastSuccessAt, downSince: state.autolineDownSince, outageAlertSent: state.outageAlertSent },
         lastRun: state.lastRun,
         lastReconciliation: state.lastReconciliation,
         draftedByApp: state.draftedByApp,
         listError,
+        lastReport: state.lastReport ? { at: state.lastReport.at, mode: state.lastReport.mode, counts: state.lastReport.counts } : null,
+        reports: listReports().slice(0, 30),
         parts: list.map((p) => ({ ...p, ...(state.parts[p.sku] || {}) })),
       });
     }
@@ -115,6 +120,18 @@ const server = http.createServer(async (req, res) => {
       const date = url.searchParams.get('date');
       const limit = Math.min(Number(url.searchParams.get('limit')) || 300, 5000);
       return send(res, 200, { dates: listLogDates(), entries: date ? readLogFile(date, limit) : logger.recent(limit) });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/report') {
+      const name = url.searchParams.get('name') || '';
+      if (name === 'last') {
+        const st = loadState();
+        return send(res, 200, st.lastReport || { rows: [] });
+      }
+      const csv = readReport(name);
+      if (!csv) return send(res, 404, { error: 'report not found' });
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
+      return res.end(csv);
     }
 
     if (req.method === 'POST' && url.pathname === '/api/sync') {
@@ -173,6 +190,8 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 <div class="cards" id="cards"></div>
 <h2>Parts (business list)</h2>
 <table><thead><tr><th>Shopify SKU</th><th>Autoline part</th><th>Product</th><th>Autoline price</th><th>Stock per location (Shopify → target)</th><th>Last result</th><th>Changes / note</th><th>Last sync</th><th></th></tr></thead><tbody id="parts"></tbody></table>
+<h2>Daily reports</h2>
+<div id="reports" class="row" style="margin-bottom:8px"></div>
 <h2>Logs</h2>
 <div class="row" style="margin-bottom:8px"><label>Day: <select id="logDate"><option value="">Live (recent)</option></select></label>
 <label>Filter: <select id="logLevel"><option value="">All</option><option>change</option><option>skip</option><option>warn</option><option>error</option><option>alert</option><option>info</option></select></label>
@@ -203,8 +222,12 @@ async function refresh() {
     ['Next scheduled', t(s.nextScheduledAt)], ['Last reconciliation', t(rc.finishedAt)],
     ['Autoline last OK', t(s.autoline.lastSuccessAt)], ['Drafted by app', Object.keys(s.draftedByApp || {}).length],
     ['Description sync', s.config.descriptionSync ? 'ON' : 'OFF'],
+    ['Parts list from', s.config.partsSource === 'tag' ? 'Shopify tag ' + s.config.syncTag : 'parts-list.csv'],
+    ['blockSale = Y', s.config.blockSaleAction === 'draft' ? 'Draft product' : 'Stock 0 + tag'],
+    ['Last report', s.lastReport ? (Object.entries(s.lastReport.counts).map(([k,n]) => k+' '+n).join(' · ') || 'clean') : '—'],
   ];
   document.getElementById('cards').innerHTML = cards.map(([k,v]) => '<div class="card"><div class="k">'+esc(k)+'</div><div class="v">'+esc(v)+'</div></div>').join('');
+  document.getElementById('reports').innerHTML = (s.reports || []).map(r => '<a href="/api/report?name='+encodeURIComponent(r)+'&token='+encodeURIComponent(token)+'">'+esc(r)+'</a>').join(' · ') || '<small>No report yet (written by the nightly reconciliation)</small>';
   document.getElementById('runningTxt').textContent = s.running ? 'Sync running (' + s.running.mode + ')…' : '';
   document.getElementById('syncAll').disabled = !!s.running;
   document.getElementById('parts').innerHTML = s.parts.map(p => {

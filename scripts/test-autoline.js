@@ -15,7 +15,7 @@ const autoline = require('../src/autoline');
   const args = process.argv.slice(2);
   const ri = args.indexOf('--rooftop');
   const rooftop = ri >= 0 ? args.splice(ri, 2)[1] : config.autoline.rooftopId;
-  console.log(`Autoline: ${config.autoline.baseUrl}  RooftopId=${rooftop}  UserId=${config.autoline.userId}\n`);
+  console.log(`Autoline: ${config.autoline.baseUrl}/${config.autoline.partsPath}  RooftopId=${rooftop}  UserId=${config.autoline.userId}\n`);
   try {
     if (args[0] === '--search') {
       const r = await autoline.searchParts(args[1] || '', rooftop);

@@ -5,7 +5,7 @@
 //   node src/sync.js --reconcile       nightly-style full reconciliation
 const fs = require('fs');
 const crypto = require('crypto');
-const { config, validate } = require('./config');
+const { config, validate, normBrand } = require('./config');
 const { logger, alert } = require('./logger');
 const autoline = require('./autoline');
 const shopify = require('./shopify');
@@ -21,6 +21,8 @@ const DEFAULT_STATE = {
   lastReconciliation: null,
   lastReconciliationDate: null,
   parts: {}, // sku -> last result snapshot for dashboard
+  deactivatedByApp: {}, // `${inventoryItemId}|${locationId}` -> { sku, at }  (delivery-only, DELIVERY_ONLY_ACTION=deactivate)
+  lastReport: null,
 };
 
 function loadState() {
@@ -37,24 +39,24 @@ function saveState(state) {
   fs.renameSync(tmp, config.stateFile);
 }
 
-// ---------- Parts list (CSV) ----------
+// ---------- Parts list ----------
+// CSV: shopify_sku[,autoline_part_number][,delivery_only]. Empty autoline number -> franchise code + SKU.
 function readPartsList() {
   const file = config.sync.partsListFile;
   if (!fs.existsSync(file)) throw new Error(`Parts list not found: ${file}`);
-  const lines = fs.readFileSync(file, 'utf8').replace(/^﻿/, '').split(/\r?\n/);
+  const lines = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
   const header = (lines.shift() || '').split(',').map((h) => h.trim().replace(/^"|"$/g, '').toLowerCase());
   const iSku = header.indexOf('shopify_sku');
   const iPn = header.indexOf('autoline_part_number');
   const iDel = header.indexOf('delivery_only');
-  if (iSku < 0 || iPn < 0) throw new Error('parts-list.csv header must be: shopify_sku,autoline_part_number[,delivery_only]');
+  if (iSku < 0) throw new Error('parts-list.csv header must be: shopify_sku[,autoline_part_number][,delivery_only]');
   const items = [];
   const seen = new Set();
   lines.forEach((line, idx) => {
     if (!line.trim() || line.trim().startsWith('#')) return;
     const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
     const sku = cols[iSku];
-    const pn = cols[iPn];
-    if (!sku || !pn) {
+    if (!sku) {
       logger.warn('parts_list_bad_row', { row: idx + 2, line });
       return;
     }
@@ -64,9 +66,60 @@ function readPartsList() {
     }
     seen.add(sku);
     const deliveryOnly = iDel >= 0 && /^(y|yes|true|1)$/i.test(cols[iDel] || '');
-    items.push({ sku, partNumber: pn, deliveryOnly });
+    items.push({ sku, partNumber: iPn >= 0 ? cols[iPn] || null : null, deliveryOnly });
   });
   return items;
+}
+
+async function getPartsList() {
+  if (config.partsSource !== 'tag') return readPartsList();
+  const rows = await shopify.listTaggedSkus(config.syncTag);
+  const seen = new Set();
+  const items = [];
+  for (const r of rows) {
+    if (seen.has(r.sku)) continue; // duplicates are caught per part (duplicate_sku_in_shopify)
+    seen.add(r.sku);
+    items.push({ sku: r.sku, partNumber: null, deliveryOnly: false });
+  }
+  return items;
+}
+
+// ---------- Franchise key ----------
+// Order (design doc section 7): explicit Autoline number (CSV) -> product metafield autoline.franchise_code
+// -> brand (Vendor) in franchise master (metaobject + FRANCHISE_MAP) with exactly one code -> UNMAPPED.
+async function loadFranchiseIndex(ctx) {
+  const idx = {};
+  const add = (brand, code) => {
+    if (!brand || !code) return;
+    const k = normBrand(brand);
+    idx[k] = idx[k] || new Set();
+    idx[k].add(code);
+  };
+  if (config.franchiseMetaobjectType) {
+    try {
+      const rows = await shopify.getFranchiseMaster(config.franchiseMetaobjectType);
+      rows.forEach((r) => add(r.brand, r.code));
+      logger.info('franchise_master_loaded', { runId: ctx.runId, entries: rows.length });
+    } catch (e) {
+      logger.warn('franchise_master_unavailable', { runId: ctx.runId, error: e.message, note: 'using FRANCHISE_MAP only' });
+    }
+  }
+  for (const [brand, codes] of Object.entries(config.franchiseMap)) codes.forEach((c) => add(brand, c));
+  return idx;
+}
+
+function resolveKey(item, v, ctx) {
+  if (item.partNumber) return { partNumber: item.partNumber, via: 'list' };
+  const sku = v.sku || item.sku;
+  if (v.product.franchiseCode) return { partNumber: v.product.franchiseCode + sku, via: 'product_metafield', code: v.product.franchiseCode };
+  const codes = [...((ctx.franchise || {})[normBrand(v.product.vendor)] || [])];
+  if (codes.length === 1) return { partNumber: codes[0] + sku, via: 'brand', code: codes[0] };
+  return {
+    partNumber: null,
+    reason: codes.length > 1
+      ? `brand "${v.product.vendor}" has several codes (${codes.join(', ')}); set autoline.franchise_code on the product`
+      : `no franchise code for brand "${v.product.vendor || '(empty)'}"`,
+  };
 }
 
 // ---------- Helpers ----------
@@ -132,76 +185,139 @@ async function maybeReactivate(state, ctx, variant, sku) {
 }
 
 // ---------- One part ----------
-async function processPart(item, state, ctx) {
-  const { sku, partNumber } = item;
-  const base = { runId: ctx.runId, sku, partNumber };
-  const snap = { sku, partNumber, at: new Date().toISOString(), result: 'unchanged', changes: [], note: '' };
+function report(ctx, type, base, detail) {
+  ctx.report.push({ type, sku: base.sku, partNumber: base.partNumber || '', detail: detail || '' });
+}
 
-  if (ctx.autolineAbort) {
-    snap.result = 'skipped';
-    snap.note = 'Autoline unreachable - Shopify left unchanged';
-    logger.skip('autoline_down_part_skipped', base);
-    return snap;
-  }
+function queueStatus(ctx, v, status) {
+  if (!config.statusMetafields || !v) return;
+  const now = new Date().toISOString();
+  if (v.syncStatus !== status)
+    ctx.metafields.push({ ownerId: v.id, namespace: 'autoline', key: 'sync_status', type: 'single_line_text_field', value: status });
+  if (status === 'OK' || status === 'BLOCKED')
+    ctx.metafields.push({ ownerId: v.id, namespace: 'autoline', key: 'last_synced_at', type: 'date_time', value: now });
+}
 
-  // 1) Autoline
-  let part;
+async function loadFromRooftop(partNumber, rooftopId, ctx, base) {
   try {
-    part = await autoline.loadPart(partNumber);
+    const p = await autoline.loadPart(partNumber, rooftopId);
     ctx.autolineOk++;
+    return { part: p };
   } catch (e) {
-    if (e.outage) {
-      ctx.autolineFail++;
-      if (ctx.autolineOk === 0 && ctx.autolineFail >= 3) ctx.autolineAbort = true;
-      snap.result = 'skipped';
-      snap.note = 'Autoline unreachable - Shopify left unchanged';
-      logger.warn('autoline_unreachable', { ...base, error: e.message });
-      return snap;
-    }
-    throw e;
+    if (!e.outage) throw e;
+    ctx.autolineFail++;
+    if (ctx.autolineOk === 0 && ctx.autolineFail >= 3) ctx.autolineAbort = true;
+    logger.warn('autoline_unreachable', { ...base, rooftopId, error: e.message });
+    return { down: true };
   }
-  if (!part.found) {
+}
+
+function toQty(src, rooftopId, base) {
+  let qty = autoline.pickStock(src);
+  if (qty < 0) {
+    logger.warn('negative_stock_set_to_zero', { ...base, rooftopId, autolineQty: qty });
+    qty = 0;
+  }
+  if (!Number.isInteger(qty)) {
+    logger.warn('fractional_stock_rounded_down', { ...base, rooftopId, autolineQty: qty });
+    qty = Math.floor(qty);
+  }
+  const buffer = config.safetyBuffer[rooftopId] || 0;
+  return Math.max(0, qty - buffer);
+}
+
+async function processPart(item, state, ctx) {
+  const { sku } = item;
+  const base = { runId: ctx.runId, sku, partNumber: item.partNumber || null };
+  const snap = { sku, partNumber: item.partNumber || '', at: new Date().toISOString(), result: 'unchanged', changes: [], note: '' };
+  const skip = (note) => {
     snap.result = 'skipped';
-    snap.note = `Autoline: ${part.errorMessage || 'no data'}`;
-    logger.skip('part_not_found_in_autoline', { ...base, errorMessage: part.errorMessage, errorCode: part.errorCode });
+    snap.note = note;
     return snap;
-  }
-  snap.autoline = {
-    rooftopId: part.rooftopId,
-    totalStockQty: part.totalStockQty,
-    prime1: part.locations.Prime1.qty,
-    price1: part.price1,
-    specialPrice: part.specialPrice,
-    blockSale: part.blockSale,
   };
 
-  // 2) Shopify variant
+  if (ctx.autolineAbort) {
+    logger.skip('autoline_down_part_skipped', base);
+    return skip('Autoline unreachable - Shopify left unchanged');
+  }
+
+  // 1) Shopify variant
   const variants = await shopify.findVariantsBySku(sku);
   if (variants.length === 0) {
-    snap.result = 'skipped';
-    snap.note = 'SKU not found in Shopify';
     logger.skip('sku_not_found_in_shopify', base);
-    return snap;
+    report(ctx, 'NOT_IN_SHOPIFY', base);
+    return skip('SKU not found in Shopify');
   }
   if (variants.length > 1) {
-    snap.result = 'error';
-    snap.note = `SKU used by ${variants.length} variants in Shopify`;
-    logger.error('duplicate_sku_in_shopify', { ...base, variantIds: variants.map((v) => v.id) });
+    logger.error('duplicate_sku_in_shopify', { ...base, variantIds: variants.map((x) => x.id) });
+    report(ctx, 'DUPLICATE_SKU', base, `${variants.length} variants`);
+    snap.result = 'skipped';
+    snap.note = `SKU used by ${variants.length} variants in Shopify - all skipped`;
     return snap;
   }
   const v = variants[0];
   snap.productId = v.product.id;
   snap.title = v.product.title;
+  snap.vendor = v.product.vendor;
 
-  // 3) blockSale -> DRAFT, otherwise reactivate if we drafted it
-  if (part.blockSale === 'Y') {
-    if (await draftProduct(state, ctx, v, sku, 'block_sale')) snap.changes.push('status: DRAFT (blockSale=Y)');
-    v.product.status = 'DRAFT';
-  } else if (await maybeReactivate(state, ctx, v, sku)) {
-    snap.changes.push('status: reactivated');
+  // 2) Autoline key (franchise code + SKU)
+  const key = resolveKey(item, v, ctx);
+  if (!key.partNumber) {
+    logger.skip('franchise_unmapped', { ...base, vendor: v.product.vendor, reason: key.reason });
+    report(ctx, 'UNMAPPED', base, key.reason);
+    queueStatus(ctx, v, 'UNMAPPED');
+    return skip(`UNMAPPED: ${key.reason}`);
+  }
+  base.partNumber = key.partNumber;
+  snap.partNumber = key.partNumber;
+  snap.keyVia = key.via;
+
+  // 3) Main rooftop (price, blockSale, website stock)
+  const main = await loadFromRooftop(key.partNumber, config.autoline.rooftopId, ctx, base);
+  if (main.down) return skip('Autoline unreachable - Shopify left unchanged');
+  const part = main.part;
+  if (!part.found) {
+    logger.skip('part_not_found_in_autoline', { ...base, rooftopId: part.rooftopId, errorMessage: part.errorMessage, errorCode: part.errorCode });
+    report(ctx, 'NOT_FOUND', base, `${part.rooftopId}: ${part.errorMessage} (${part.errorCode})`);
+    queueStatus(ctx, v, 'NOT_FOUND');
+    return skip(`Autoline: ${part.errorMessage || 'no data'}`);
+  }
+  snap.autoline = {
+    rooftopId: part.rooftopId,
+    totalStockQty: part.totalStockQty,
+    price1: part.price1,
+    specialPrice: part.specialPrice,
+    blockSale: part.blockSale,
+  };
+  if (part.supercededTo) {
+    logger.info('part_superseded', { ...base, supercededTo: part.supercededTo });
+    report(ctx, 'SUPERSEDED', base, `superseded by ${part.supercededTo}`);
   }
 
-  // 4) Price / compare-at
+  const blocked = part.blockSale === 'Y';
+  const tagsLower = v.product.tags.map((t) => t.toLowerCase());
+
+  // 4) Status: blockSale / reactivation
+  if (blocked) {
+    report(ctx, 'BLOCKED', base);
+    if (config.blockSaleAction === 'draft') {
+      if (await draftProduct(state, ctx, v, sku, 'block_sale')) snap.changes.push('status: DRAFT (blockSale=Y)');
+      v.product.status = 'DRAFT';
+    } else if (!tagsLower.includes(config.blockedTag.toLowerCase())) {
+      await shopify.addTags(v.product.id, [config.blockedTag]);
+      logger.change('blocked_tag_added', { ...base, tag: config.blockedTag });
+      snap.changes.push(`tag ${config.blockedTag} added`);
+    }
+  } else {
+    if (await maybeReactivate(state, ctx, v, sku)) snap.changes.push('status: reactivated');
+    if (tagsLower.includes(config.blockedTag.toLowerCase())) {
+      await shopify.removeTags(v.product.id, [config.blockedTag]);
+      logger.change('blocked_tag_removed', { ...base, tag: config.blockedTag });
+      snap.changes.push(`tag ${config.blockedTag} removed`);
+    }
+  }
+
+  // 5) Price
   const want = desiredPrices(part);
   if (!want) {
     logger.warn('invalid_price_skipped', { ...base, price1: part.price1 });
@@ -212,65 +328,79 @@ async function processPart(item, state, ctx) {
   ) {
     const cmp = want.compareAtPrice === undefined ? v.compareAtPrice : want.compareAtPrice;
     await shopify.updateVariantPrices(v.product.id, v.id, want.price, cmp);
-    logger.change('price_updated', {
-      ...base,
-      from: { price: v.price, compareAtPrice: v.compareAtPrice },
-      to: { price: want.price, compareAtPrice: cmp },
-      promo: want.promo,
-    });
-    snap.changes.push(`price ${v.price} -> ${want.price}` + (want.promo ? ` (compare-at ${want.compareAtPrice})` : ''));
+    logger.change('price_updated', { ...base, from: { price: v.price, compareAtPrice: v.compareAtPrice }, to: { price: want.price, compareAtPrice: cmp }, promo: want.promo });
+    snap.changes.push(`price ${v.price} -> ${want.price}`);
+    const old = Number(v.price);
+    if (old > 0) {
+      const pct = (Math.abs(Number(want.price) - old) / old) * 100;
+      if (pct > config.priceSwingPercent) {
+        logger.warn('price_swing', { ...base, from: v.price, to: want.price, percent: Math.round(pct) });
+        report(ctx, 'PRICE_SWING', base, `${v.price} -> ${want.price} (${Math.round(pct)}%)`);
+      }
+    }
   }
 
-  // 5) Inventory - one Shopify location per Autoline rooftop
+  // 6) Delivery-only?
   const deliveryOnly =
-    item.deliveryOnly || (config.deliveryOnlyTag && (v.product.tags || []).some((t) => t.toLowerCase() === config.deliveryOnlyTag));
+    item.deliveryOnly ||
+    (config.deliveryOnlyTag && tagsLower.includes(config.deliveryOnlyTag)) ||
+    (config.deliveryOnlyTypes.length > 0 && config.deliveryOnlyTypes.includes(v.product.productType.toLowerCase()));
   snap.deliveryOnly = deliveryOnly;
+  const mfWant = deliveryOnly ? 'true' : 'false';
+  if (v.product.deliveryOnlyMf !== mfWant && (deliveryOnly || v.product.deliveryOnlyMf !== null)) {
+    ctx.metafields.push({ ownerId: v.product.id, namespace: 'ehastock', key: 'delivery_only', type: 'boolean', value: mfWant });
+  }
+
+  // 7) Inventory per location
   snap.stocks = [];
   const writes = [];
+  const toDeactivate = [];
   if (!v.tracked) {
     logger.skip('inventory_not_tracked', { ...base, note: 'Track quantity is off in Shopify; not changing that setting' });
     snap.note = (snap.note ? snap.note + '; ' : '') + 'inventory not tracked in Shopify';
   } else {
     for (const t of ctx.targets) {
-      const lvl = v.levels[t.locationId];
+      const deKey = `${v.inventoryItemId}|${t.locationId}`;
+      let lvl = v.levels[t.locationId];
       const row = { location: t.name, rooftopId: t.rooftopId, shopify: lvl ? lvl.available : null, target: null };
       snap.stocks.push(row);
+      const outletDeliveryOnly = deliveryOnly && t.outlet;
+
+      // Re-activate an outlet the app deactivated earlier, once the product is no longer delivery-only
+      if (!lvl && !outletDeliveryOnly && state.deactivatedByApp[deKey]) {
+        await shopify.activateInventory(v.inventoryItemId, t.locationId);
+        delete state.deactivatedByApp[deKey];
+        logger.change('inventory_reactivated', { ...base, location: t.name });
+        snap.changes.push(`${t.name}: inventory re-activated`);
+        lvl = { id: null, name: t.name, available: 0 };
+        row.shopify = 0;
+      }
       if (!lvl) {
-        logger.skip('variant_not_stocked_at_location', { ...base, location: t.name, note: 'not changing stocking settings' });
-        row.note = 'not stocked here';
+        if (!outletDeliveryOnly) logger.skip('variant_not_stocked_at_location', { ...base, location: t.name, note: 'not changing stocking settings' });
+        row.note = outletDeliveryOnly ? 'delivery only - not stocked' : 'not stocked here';
         continue;
       }
+
       let qty;
-      if (deliveryOnly && t.outlet) {
-        qty = 0; // delivery-only: no pickup stock at outlets
+      if (blocked && config.blockSaleAction === 'zero') {
+        qty = 0;
+        row.note = 'blockSale=Y';
+      } else if (outletDeliveryOnly) {
+        qty = 0;
+        row.note = 'delivery only';
+        if (config.deliveryOnlyAction === 'deactivate' && lvl.id) toDeactivate.push({ t, lvl, deKey });
       } else {
-        let src = t.rooftopId === part.rooftopId ? part : null;
-        if (!src) {
-          try {
-            src = await autoline.loadPart(partNumber, t.rooftopId);
-            ctx.autolineOk++;
-          } catch (e) {
-            if (!e.outage) throw e;
-            ctx.autolineFail++;
-            logger.warn('autoline_unreachable_location_skipped', { ...base, rooftopId: t.rooftopId, location: t.name, error: e.message });
-            row.note = 'Autoline unreachable - unchanged';
-            continue;
-          }
-          if (!src.found) {
-            logger.skip('part_not_found_in_rooftop', { ...base, rooftopId: t.rooftopId, location: t.name, errorMessage: src.errorMessage });
-            row.note = 'not in this rooftop - unchanged';
-            continue;
-          }
+        const src = t.rooftopId === part.rooftopId ? { part } : await loadFromRooftop(key.partNumber, t.rooftopId, ctx, base);
+        if (src.down) {
+          row.note = 'Autoline unreachable - unchanged';
+          continue;
         }
-        qty = autoline.pickStock(src);
-        if (qty < 0) {
-          logger.warn('negative_stock_set_to_zero', { ...base, rooftopId: t.rooftopId, autolineQty: qty });
-          qty = 0;
+        if (!src.part.found) {
+          logger.skip('part_not_found_in_rooftop', { ...base, rooftopId: t.rooftopId, location: t.name, errorMessage: src.part.errorMessage });
+          row.note = 'not in this rooftop - unchanged';
+          continue;
         }
-        if (!Number.isInteger(qty)) {
-          logger.warn('fractional_stock_rounded_down', { ...base, rooftopId: t.rooftopId, autolineQty: qty });
-          qty = Math.floor(qty);
-        }
+        qty = toQty(src.part, t.rooftopId, base);
       }
       row.target = qty;
       if (lvl.available !== qty) writes.push({ locationId: t.locationId, quantity: qty, from: lvl.available, name: t.name });
@@ -278,13 +408,19 @@ async function processPart(item, state, ctx) {
     if (writes.length) {
       await shopify.setAvailable(v.inventoryItemId, writes);
       for (const w of writes) {
-        logger.change('inventory_updated', { ...base, location: w.name, from: w.from, to: w.quantity, deliveryOnly });
+        logger.change('inventory_updated', { ...base, location: w.name, from: w.from, to: w.quantity, deliveryOnly, blocked });
         snap.changes.push(`${w.name}: ${w.from} -> ${w.quantity}`);
       }
     }
+    for (const d of toDeactivate) {
+      await shopify.deactivateInventory(d.lvl.id);
+      state.deactivatedByApp[d.deKey] = { sku, at: new Date().toISOString() };
+      logger.change('inventory_deactivated', { ...base, location: d.t.name, reason: 'delivery_only' });
+      snap.changes.push(`${d.t.name}: inventory deactivated (delivery only)`);
+    }
   }
 
-  // 6) Description (only if approved)
+  // 8) Description (only if approved)
   if (config.descriptionSync && part.description) {
     const html = `<p>${escapeHtml(part.description)}</p>`;
     if ((v.product.descriptionHtml || '').trim() !== html) {
@@ -294,9 +430,31 @@ async function processPart(item, state, ctx) {
     }
   }
 
+  queueStatus(ctx, v, blocked ? 'BLOCKED' : 'OK');
   if (snap.changes.length) snap.result = 'changed';
   else logger.info('no_change', { ...base, price: want && want.price });
   return snap;
+}
+
+// ---------- Report file (CSV) ----------
+const path = require('path');
+const reportsDir = () => path.join(config.dataDir, 'reports');
+function writeReport(rows) {
+  fs.mkdirSync(reportsDir(), { recursive: true });
+  const file = path.join(reportsDir(), `report-${new Date().toISOString().slice(0, 10)}.csv`);
+  const esc = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+  const lines = ['type,shopify_sku,autoline_part_number,detail', ...rows.map((r) => [r.type, r.sku, r.partNumber, r.detail].map(esc).join(','))];
+  fs.writeFileSync(file, lines.join('\r\n') + '\r\n');
+  return file;
+}
+function listReports() {
+  if (!fs.existsSync(reportsDir())) return [];
+  return fs.readdirSync(reportsDir()).filter((f) => /^report-\d{4}-\d{2}-\d{2}\.csv$/.test(f)).sort().reverse();
+}
+function readReport(name) {
+  if (!/^report-\d{4}-\d{2}-\d{2}\.csv$/.test(name)) return null;
+  const f = path.join(reportsDir(), name);
+  return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
 }
 
 // ---------- Run ----------
@@ -313,19 +471,20 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
   const runId = crypto.randomBytes(4).toString('hex');
   running = { runId, mode, startedAt: new Date().toISOString() };
   const started = Date.now();
-  const ctx = { runId, autolineOk: 0, autolineFail: 0, autolineAbort: false };
+  const ctx = { runId, autolineOk: 0, autolineFail: 0, autolineAbort: false, report: [], metafields: [] };
   const state = loadState();
   const summary = { runId, mode, trigger, startedAt: running.startedAt, total: 0, changed: 0, unchanged: 0, skipped: 0, errors: 0, drafted_removed: 0 };
 
   try {
     logger.info('run_started', { runId, mode, trigger, onlySku, dryRun: config.sync.dryRun });
     ctx.targets = await shopify.getTargetLocations();
-    let list = readPartsList();
+    ctx.franchise = await loadFranchiseIndex(ctx);
+    let list = await getPartsList();
     const listSkus = new Set(list.map((x) => x.sku));
 
     if (onlySku) {
       list = list.filter((x) => x.sku === onlySku);
-      if (!list.length) throw new Error(`SKU ${onlySku} is not in the parts list`);
+      if (!list.length) throw new Error(`SKU ${onlySku} is not in the parts list (${config.partsSource === 'tag' ? 'tag ' + config.syncTag : 'parts-list.csv'})`);
     } else {
       // Parts removed from the business list -> DRAFT (never delete)
       const removed = (state.knownSkus || []).filter((s) => !listSkus.has(s));
@@ -359,6 +518,16 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
       summary[r.result === 'changed' ? 'changed' : r.result === 'unchanged' ? 'unchanged' : r.result === 'error' ? 'errors' : 'skipped']++;
       state.parts[r.sku] = r;
     }
+    // Status / delivery-only metafields, 25 per call
+    if (ctx.metafields.length) {
+      try {
+        await shopify.setMetafields(ctx.metafields);
+        logger.info('metafields_written', { runId, count: ctx.metafields.length });
+      } catch (e) {
+        summary.errors++;
+        logger.error('metafields_failed', { runId, error: e.message });
+      }
+    }
   } catch (e) {
     summary.errors++;
     summary.fatal = e.message;
@@ -387,6 +556,20 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
     }
   }
 
+  // ---------- Business report ----------
+  const counts = {};
+  for (const r of ctx.report) counts[r.type] = (counts[r.type] || 0) + 1;
+  summary.report = counts;
+  if (!onlySku) {
+    state.lastReport = { at: new Date().toISOString(), mode, counts, rows: ctx.report.slice(0, 500) };
+    if (mode === 'reconciliation') {
+      const file = writeReport(ctx.report);
+      const txt = Object.entries(counts).map(([k, n]) => `${k}: ${n}`).join(', ') || 'nothing to report';
+      logger.info('daily_report_written', { file, counts });
+      await alert('daily_report', `Daily report: ${txt}. File: ${require('path').basename(file)}`, { counts }, { force: true });
+    }
+  }
+
   summary.durationMs = Date.now() - started;
   summary.finishedAt = new Date().toISOString();
   if (!onlySku) state.lastRun = summary;
@@ -401,7 +584,7 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
   return summary;
 }
 
-module.exports = { runSync, isRunning, loadState, saveState, readPartsList, desiredPrices };
+module.exports = { runSync, isRunning, loadState, saveState, readPartsList, getPartsList, desiredPrices, resolveKey, listReports, readReport };
 
 // ---------- CLI ----------
 if (require.main === module) {

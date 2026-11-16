@@ -133,43 +133,111 @@ async function getTargetLocations() {
 }
 
 // ---------- Variant lookup ----------
+const VARIANT_FIELDS = `
+  id sku price compareAtPrice
+  syncStatus: metafield(namespace: "autoline", key: "sync_status") { value }
+  inventoryItem {
+    id tracked
+    inventoryLevels(first: 50) { nodes { id location { id name } quantities(names: ["available"]) { name quantity } } }
+  }
+  product {
+    id title status descriptionHtml tags vendor productType
+    franchiseCode: metafield(namespace: "autoline", key: "franchise_code") { value }
+    deliveryOnlyMf: metafield(namespace: "ehastock", key: "delivery_only") { value }
+  }`;
+
+function mapVariant(v) {
+  const levels = {};
+  for (const n of (v.inventoryItem && v.inventoryItem.inventoryLevels.nodes) || []) {
+    const q = n.quantities.find((x) => x.name === 'available');
+    levels[n.location.id] = { id: n.id, name: n.location.name, available: q ? q.quantity : 0 };
+  }
+  const p = v.product;
+  return {
+    id: v.id,
+    sku: (v.sku || '').trim(),
+    price: v.price,
+    compareAtPrice: v.compareAtPrice,
+    syncStatus: v.syncStatus ? v.syncStatus.value : null,
+    inventoryItemId: v.inventoryItem && v.inventoryItem.id,
+    tracked: !!(v.inventoryItem && v.inventoryItem.tracked),
+    levels, // locationId -> { id, name, available }  (only locations where the item is stocked)
+    product: {
+      id: p.id,
+      title: p.title,
+      status: p.status,
+      descriptionHtml: p.descriptionHtml,
+      tags: p.tags || [],
+      vendor: p.vendor || '',
+      productType: p.productType || '',
+      franchiseCode: p.franchiseCode ? String(p.franchiseCode.value || '').trim().toUpperCase() : '',
+      deliveryOnlyMf: p.deliveryOnlyMf ? p.deliveryOnlyMf.value : null,
+    },
+  };
+}
+
 async function findVariantsBySku(sku) {
   const safe = sku.replace(/(["\\])/g, '\\$1');
-  const d = await gql(
-    `query($q: String!) {
-      productVariants(first: 10, query: $q) {
-        nodes {
-          id sku price compareAtPrice
-          inventoryItem {
-            id tracked
-            inventoryLevels(first: 50) { nodes { location { id name } quantities(names: ["available"]) { name quantity } } }
-          }
-          product { id title status descriptionHtml tags }
-        }
-      }
-    }`,
-    { q: `sku:"${safe}"` }
-  );
+  const d = await gql(`query($q: String!) { productVariants(first: 10, query: $q) { nodes { ${VARIANT_FIELDS} } } }`, {
+    q: `sku:"${safe}"`,
+  });
   // Shopify search can be fuzzy: keep only exact SKU matches.
-  return d.productVariants.nodes
-    .filter((v) => (v.sku || '').trim() === sku)
-    .map((v) => {
-      const levels = {};
-      for (const n of (v.inventoryItem && v.inventoryItem.inventoryLevels.nodes) || []) {
-        const q = n.quantities.find((x) => x.name === 'available');
-        levels[n.location.id] = { name: n.location.name, available: q ? q.quantity : 0 };
-      }
-      return {
-        id: v.id,
-        sku: v.sku,
-        price: v.price,
-        compareAtPrice: v.compareAtPrice,
-        inventoryItemId: v.inventoryItem && v.inventoryItem.id,
-        tracked: !!(v.inventoryItem && v.inventoryItem.tracked),
-        levels, // locationId -> { name, available }  (only locations where the item is stocked)
-        product: v.product,
-      };
-    });
+  return d.productVariants.nodes.filter((v) => (v.sku || '').trim() === sku).map(mapVariant);
+}
+
+// All variants (with SKU) of products carrying the sync tag. Returns [{ sku }].
+async function listTaggedSkus(tag) {
+  const out = [];
+  let after = null;
+  const safe = tag.replace(/(['\\])/g, '\\$1');
+  do {
+    const d = await gql(
+      `query($q: String!, $after: String) {
+        products(first: 100, after: $after, query: $q) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id tags variants(first: 100) { nodes { sku } } }
+        }
+      }`,
+      { q: `tag:'${safe}'`, after }
+    );
+    for (const p of d.products.nodes) {
+      // search is tokenised: double-check the exact tag
+      if (!p.tags.some((t) => t.toLowerCase() === tag.toLowerCase())) continue;
+      for (const v of p.variants.nodes) if (v.sku && v.sku.trim()) out.push({ sku: v.sku.trim(), productId: p.id });
+    }
+    after = d.products.pageInfo.hasNextPage ? d.products.pageInfo.endCursor : null;
+  } while (after);
+  return out;
+}
+
+// Franchise master from metaobject entries: [{ code, brand, description }]
+async function getFranchiseMaster(type) {
+  const out = [];
+  let after = null;
+  do {
+    const d = await gql(
+      `query($type: String!, $after: String) {
+        metaobjects(type: $type, first: 250, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            code: field(key: "code") { value }
+            brand: field(key: "brand") { value }
+            description: field(key: "description") { value }
+          }
+        }
+      }`,
+      { type, after }
+    );
+    for (const n of d.metaobjects.nodes) {
+      out.push({
+        code: n.code && n.code.value ? n.code.value.trim().toUpperCase() : '',
+        brand: n.brand && n.brand.value ? n.brand.value.trim() : '',
+        description: n.description && n.description.value ? n.description.value.trim() : '',
+      });
+    }
+    after = d.metaobjects.pageInfo.hasNextPage ? d.metaobjects.pageInfo.endCursor : null;
+  } while (after);
+  return out;
 }
 
 // ---------- Mutations (respect DRY_RUN) ----------
@@ -238,11 +306,61 @@ async function setProductDescription(productId, descriptionHtml) {
   checkUserErrors('productUpdate(description)', d.productUpdate);
 }
 
+async function addTags(id, tags) {
+  if (dry('tagsAdd', { id, tags })) return;
+  const d = await gql(`mutation($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }`, { id, tags });
+  checkUserErrors('tagsAdd', d.tagsAdd);
+}
+
+async function removeTags(id, tags) {
+  if (dry('tagsRemove', { id, tags })) return;
+  const d = await gql(`mutation($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { userErrors { field message } } }`, { id, tags });
+  checkUserErrors('tagsRemove', d.tagsRemove);
+}
+
+// metafields: [{ ownerId, namespace, key, type, value }] - sent 25 at a time
+async function setMetafields(metafields) {
+  for (let i = 0; i < metafields.length; i += 25) {
+    const chunk = metafields.slice(i, i + 25);
+    if (dry('metafieldsSet', { count: chunk.length })) continue;
+    const d = await gql(
+      `mutation($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { userErrors { field message code } } }`,
+      { m: chunk }
+    );
+    checkUserErrors('metafieldsSet', d.metafieldsSet);
+  }
+}
+
+async function deactivateInventory(inventoryLevelId) {
+  if (dry('inventoryDeactivate', { inventoryLevelId })) return;
+  const d = await gql(
+    `mutation($id: ID!) { inventoryDeactivate(inventoryLevelId: $id) { userErrors { field message } } }`,
+    { id: inventoryLevelId }
+  );
+  checkUserErrors('inventoryDeactivate', d.inventoryDeactivate);
+}
+
+async function activateInventory(inventoryItemId, locationId) {
+  if (dry('inventoryActivate', { inventoryItemId, locationId })) return;
+  const d = await gql(
+    `mutation($i: ID!, $l: ID!) { inventoryActivate(inventoryItemId: $i, locationId: $l) { inventoryLevel { id } userErrors { field message } } }`,
+    { i: inventoryItemId, l: locationId }
+  );
+  checkUserErrors('inventoryActivate', d.inventoryActivate);
+}
+
 module.exports = {
   gql,
   getShopInfo,
   getTargetLocations,
   findVariantsBySku,
+  listTaggedSkus,
+  getFranchiseMaster,
+  addTags,
+  removeTags,
+  setMetafields,
+  deactivateInventory,
+  activateInventory,
   updateVariantPrices,
   setAvailable,
   setProductStatus,

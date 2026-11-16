@@ -26,6 +26,7 @@ const shopify = require('../src/shopify');
       console.log(`\nSKU ${sku}: ${vs.length} exact match(es)`);
       vs.forEach((v) => {
         console.log(`  ${v.product.title} [${v.product.status}]  price=${v.price} compareAt=${v.compareAtPrice}  tracked=${v.tracked}  tags=${(v.product.tags || []).join('|')}`);
+        console.log(`     vendor=${v.product.vendor || '(empty)'}  type=${v.product.productType || '(empty)'}  franchise_code metafield=${v.product.franchiseCode || '(none)'}  sync_status=${v.syncStatus || '(none)'}`);
         for (const l of Object.values(v.levels)) console.log(`     stocked at ${l.name}: available=${l.available}`);
       });
     }
