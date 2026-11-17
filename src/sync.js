@@ -113,6 +113,7 @@ function resolveKey(item, v, ctx) {
   if (v.partNumberOverride) return { partNumber: v.partNumberOverride, via: 'variant_metafield' };
   if (item.partNumber) return { partNumber: item.partNumber, via: 'list' };
   const sku = v.sku || item.sku;
+  if (config.partKeyMode === 'sku') return sku ? { partNumber: String(sku).trim().toUpperCase(), via: 'sku' } : { partNumber: null, reason: 'empty SKU' };
   if (v.product.franchiseCode) return { partNumber: v.product.franchiseCode + sku, via: 'product_metafield', code: v.product.franchiseCode };
   const codes = [...((ctx.franchise || {})[normBrand(v.product.vendor)] || [])];
   if (codes.length === 1) return { partNumber: codes[0] + sku, via: 'brand', code: codes[0] };
@@ -149,8 +150,11 @@ async function pool(items, size, fn) {
 
 // PRICE_MODE=price1 (business decision): selling price = Price1, compare-at is not touched.
 // PRICE_MODE=price1_special: specialPrice > 0 and below price1 => price = special, compare-at = price1.
-function desiredPrices(part) {
-  if (!(part.price1 > 0)) return null;
+// Autoline price1 is without VAT; the website shows the price with VAT (PRICE_VAT_PERCENT, default 10).
+const withVat = (n) => Math.round(Number(n) * (1 + (config.priceVatPercent || 0) / 100) * 1000) / 1000;
+function desiredPrices(raw) {
+  if (!(raw.price1 > 0)) return null;
+  const part = { ...raw, price1: withVat(raw.price1), specialPrice: raw.specialPrice > 0 ? withVat(raw.specialPrice) : 0 };
   if (config.priceMode === 'price1') return { price: money(part.price1), compareAtPrice: undefined, promo: false };
   if (part.specialPrice > 0 && part.specialPrice < part.price1) {
     return { price: money(part.specialPrice), compareAtPrice: money(part.price1), promo: true };
@@ -200,9 +204,30 @@ function queueStatus(ctx, v, status) {
     ctx.metafields.push({ ownerId: v.id, namespace: 'autoline', key: 'last_synced_at', type: 'date_time', value: now });
 }
 
+// "PART1+PART2" = one Shopify product made of several Autoline parts (e.g. AC indoor + outdoor unit):
+// found only if all are found; stock = lowest; price1 = sum; blocked if any part is blocked.
+async function loadBundle(partNumber, rooftopId) {
+  const pieces = partNumber.split('+').map((x) => x.trim()).filter(Boolean);
+  if (pieces.length < 2) return autoline.loadPart(partNumber, rooftopId);
+  const parts = [];
+  for (const pn of pieces) parts.push(await autoline.loadPart(pn, rooftopId));
+  const missing = parts.find((x) => !x.found);
+  if (missing) return { ...missing, errorMessage: `${missing.partNumber || ''} ${missing.errorMessage || 'not found'}`.trim() };
+  return {
+    ...parts[0],
+    partNumber,
+    bundle: parts.map((x) => ({ partNumber: x.partNumber, price1: x.price1, totalStockQty: x.totalStockQty })),
+    totalStockQty: Math.min(...parts.map((x) => Number(x.totalStockQty) || 0)),
+    price1: parts.every((x) => x.price1 > 0) ? parts.reduce((a, x) => a + Number(x.price1), 0) : 0,
+    specialPrice: 0,
+    blockSale: parts.some((x) => x.blockSale === 'Y') ? 'Y' : 'N',
+    supercededTo: parts.map((x) => x.supercededTo).filter(Boolean).join('+'),
+  };
+}
+
 async function loadFromRooftop(partNumber, rooftopId, ctx, base) {
   try {
-    const p = await autoline.loadPart(partNumber, rooftopId);
+    const p = await loadBundle(partNumber, rooftopId);
     ctx.autolineOk++;
     return { part: p };
   } catch (e) {
@@ -334,8 +359,11 @@ async function processPart(item, state, ctx) {
     }
   }
 
-  // 5) Price
-  const want = desiredPrices(part);
+  // 5) Price (+ installation charge from variant metafield autoline.installation_charge, e.g. AC units)
+  const install = Number(v.installationCharge) || 0;
+  const want = desiredPrices(install > 0 && part.price1 > 0 ? { ...part, price1: part.price1 + install, specialPrice: part.specialPrice > 0 ? part.specialPrice + install : 0 } : part);
+  if (install > 0) snap.installationCharge = install;
+  if (part.bundle) snap.bundle = part.bundle;
   if (!want) {
     logger.warn('invalid_price_skipped', { ...base, price1: part.price1 });
     snap.note = 'price1 is 0/empty - price not changed';
@@ -389,6 +417,14 @@ async function processPart(item, state, ctx) {
         delete state.deactivatedByApp[deKey];
         logger.change('inventory_reactivated', { ...base, location: t.name });
         snap.changes.push(`${t.name}: inventory re-activated`);
+        lvl = { id: null, name: t.name, available: 0 };
+        row.shopify = 0;
+      }
+      // Product not set up at this location yet (e.g. Gudaibiya): stock it there, so pickup can be offered
+      if (!lvl && !outletDeliveryOnly && config.stockAtAllLocations) {
+        await shopify.activateInventory(v.inventoryItemId, t.locationId);
+        logger.change('inventory_activated', { ...base, location: t.name });
+        snap.changes.push(`${t.name}: product stocked here`);
         lvl = { id: null, name: t.name, available: 0 };
         row.shopify = 0;
       }
@@ -495,6 +531,8 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
   try {
     logger.info('run_started', { runId, mode, trigger, onlySku, dryRun: config.sync.dryRun });
     ctx.targets = await shopify.getTargetLocations();
+    if (!config.outletStockSync) ctx.targets = ctx.targets.filter((t) => !t.outlet);
+    if (!ctx.targets.length) throw new Error('No Shopify location to write: map the main rooftop (e.g. SOC1P_PH) to "Online Store Location" in LOCATION_STOCK_MAP');
     ctx.franchise = await loadFranchiseIndex(ctx);
     let list = await getPartsList();
     const listSkus = new Set(list.map((x) => x.sku));
@@ -601,7 +639,7 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
   return summary;
 }
 
-module.exports = { runSync, isRunning, loadState, saveState, readPartsList, getPartsList, desiredPrices, resolveKey, loadFranchiseIndex, listReports, readReport };
+module.exports = { runSync, isRunning, loadState, saveState, readPartsList, getPartsList, desiredPrices, resolveKey, loadFranchiseIndex, listReports, readReport, loadBundle };
 
 // ---------- CLI ----------
 if (require.main === module) {

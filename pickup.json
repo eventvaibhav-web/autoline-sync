@@ -1,0 +1,48 @@
+{
+  "processed": [
+    "gid://shopify/Order/7744706150625",
+    "gid://shopify/Order/7744706150625"
+  ],
+  "checks": [
+    {
+      "at": "2026-11-16T11:38:18.278Z",
+      "orderId": "gid://shopify/Order/7744706150625",
+      "order": "##YKEHAT1038",
+      "trigger": "dashboard",
+      "pickup": true,
+      "lines": [
+        {
+          "location": "Y.K. Almoayyed & Sons Electronics and Home Appliances - Manama Showroom",
+          "rooftopId": "SOE4P_PH",
+          "sku": "UHD65SLEDT",
+          "ordered": 3,
+          "partNumber": "NKUHD65SLEDT",
+          "autolineQty": 2,
+          "status": "SHORT"
+        }
+      ],
+      "short": true,
+      "problems": []
+    },
+    {
+      "at": "2026-11-16T11:39:51.178Z",
+      "orderId": "gid://shopify/Order/7744706150625",
+      "order": "##YKEHAT1038",
+      "trigger": "dashboard",
+      "pickup": true,
+      "lines": [
+        {
+          "location": "Y.K. Almoayyed & Sons Electronics and Home Appliances - Manama Showroom",
+          "rooftopId": "SOE4P_PH",
+          "sku": "UHD65SLEDT",
+          "ordered": 3,
+          "partNumber": "NKUHD65SLEDT",
+          "autolineQty": 2,
+          "status": "SHORT"
+        }
+      ],
+      "short": true,
+      "problems": []
+    }
+  ]
+}

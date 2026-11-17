@@ -98,6 +98,17 @@ async function alert(key, message, data = {}, { force = false } = {}) {
       log('error', 'alert_webhook_failed', { error: e.message });
     }
   }
+  if (config.alerts.emailTo.length && config.alerts.smtp.host) {
+    try {
+      await require('./mailer').sendMail({
+        to: config.alerts.emailTo,
+        subject: `[Autoline-Shopify Sync] ${key}`,
+        text: `${message}\n\n${JSON.stringify(data, null, 2)}\n\nTime: ${new Date().toISOString()}`,
+      });
+    } catch (e) {
+      log('error', 'alert_email_failed', { error: e.message });
+    }
+  }
   return true;
 }
 

@@ -68,7 +68,8 @@ function parseFranchiseMap(raw) {
   return out;
 }
 function normBrand(s) {
-  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  // "Glem Gas" = "Glemgas", "White-Westinghouse" = "White Westinghouse", "NIKAI" = "Nikai"
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 // "SOE4P_PH=1,SOE3P_PH=1" -> { SOE4P_PH: 1, SOE3P_PH: 1 }
 function parseNumMap(raw) {
@@ -100,10 +101,18 @@ function build() {
     retryDelaysMs: env('AUTOLINE_RETRY_DELAYS', '1,4,16').split(',').map((x) => Number(x) * 1000).filter((x) => x >= 0),
   },
   stockSource: env('STOCK_SOURCE', 'total').toLowerCase(),
+  // franchise = Autoline key is franchise code + SKU; sku = Shopify SKU already IS the Autoline part number (e.g. NKUHD65SLEDT)
+  partKeyMode: env('PART_KEY_MODE', 'franchise').toLowerCase(),
+  // false = do not write stock to outlet locations (Manama / Gudebiya); pickup re-check still reads them
+  outletStockSync: bool('OUTLET_STOCK_SYNC', true),
   descriptionSync: bool('DESCRIPTION_SYNC_ENABLED', false),
   // price1 = selling price is Price1 only (compare-at not touched)
   // price1_special = specialPrice > 0 -> price=specialPrice, compare-at=price1
   priceMode: env('PRICE_MODE', 'price1').toLowerCase(),
+  // VAT added to Autoline price1 (price1 is without VAT). 0 = write price1 as it is
+  priceVatPercent: num('PRICE_VAT_PERCENT', 10),
+  // true = if a product is not set up at a mapped location (e.g. Gudaibiya), the sync sets it up there
+  stockAtAllLocations: bool('STOCK_AT_ALL_LOCATIONS', true),
   // "ROOFTOP=gid://shopify/Location/ID, ROOFTOP=..."  (which Autoline rooftop fills which Shopify location)
   locationStockMap: parseMap(env('LOCATION_STOCK_MAP', '')),
   // Rooftops that are pickup outlets; delivery-only parts get 0 stock there
@@ -154,6 +163,14 @@ function build() {
   alerts: {
     outageMinutes: num('OUTAGE_ALERT_MINUTES', 60),
     webhookUrl: env('ALERT_WEBHOOK_URL', ''),
+    emailTo: env('ALERT_EMAIL_TO', '').split(/[,;]/).map((x) => x.trim()).filter(Boolean),
+    emailFrom: env('ALERT_EMAIL_FROM', env('SMTP_USER', '')),
+    smtp: {
+      host: env('SMTP_HOST', ''),
+      port: num('SMTP_PORT', 587),
+      user: env('SMTP_USER', ''),
+      pass: env('SMTP_PASS', ''),
+    },
     cooldownMinutes: num('ALERT_COOLDOWN_MINUTES', 60),
   },
   logs: {
@@ -184,9 +201,13 @@ const EDITABLE = {
   AUTOLINE_ROOFTOP_ID: { type: 'text', group: 'Autoline', label: 'Main rooftop (price, blockSale)' },
   LOCATION_STOCK_MAP: { type: 'textarea', group: 'Autoline', label: 'Rooftop → Shopify location (ROOFTOP=gid://shopify/Location/ID)' },
   OUTLET_ROOFTOPS: { type: 'text', group: 'Autoline', label: 'Pickup outlet rooftops' },
+  OUTLET_STOCK_SYNC: { type: 'bool', group: 'Autoline', label: 'Write outlet stock (Manama / Gudebiya) to Shopify' },
+  PART_KEY_MODE: { type: 'select', group: 'Parts', label: 'Autoline part number', options: { franchise: 'Franchise code + SKU', sku: 'SKU is the Autoline part number' } },
   STOCK_SOURCE: { type: 'select', group: 'Autoline', label: 'Stock quantity', options: { total: 'totalStockQty', prime1: 'Prime1 only', 'prime1-3': 'Prime1 + 2 + 3' } },
   SAFETY_BUFFER: { type: 'text', group: 'Autoline', label: 'Safety buffer (ROOFTOP=number)' },
   PRICE_MODE: { type: 'select', group: 'Price & product', label: 'Selling price', options: { price1: 'Price1 only', price1_special: 'Price1 + specialPrice promo' } },
+  PRICE_VAT_PERCENT: { type: 'number', group: 'Price & product', label: 'Add VAT to price1 (%)', min: 0, max: 100 },
+  STOCK_AT_ALL_LOCATIONS: { type: 'bool', group: 'Autoline', label: 'Set up product at every mapped location (e.g. Gudaibiya) if missing' },
   PRICE_SWING_PERCENT: { type: 'number', group: 'Price & product', label: 'Report price change above (%)', min: 1, max: 1000 },
   DESCRIPTION_SYNC_ENABLED: { type: 'bool', group: 'Price & product', label: 'Sync description from Autoline' },
   BLOCK_SALE_ACTION: { type: 'select', group: 'Price & product', label: 'When blockSale = Y', options: { zero: 'Stock 0 + tag', draft: 'Set product to Draft' } },
@@ -199,6 +220,7 @@ const EDITABLE = {
   PICKUP_ALERT_TAG: { type: 'text', group: 'Pickup orders', label: 'Order tag when outlet stock is short' },
   OUTAGE_ALERT_MINUTES: { type: 'number', group: 'Alerts', label: 'Alert when Autoline down (minutes)', min: 5, max: 1440 },
   ALERT_WEBHOOK_URL: { type: 'text', group: 'Alerts', label: 'Alert webhook URL (Teams/Slack)' },
+  ALERT_EMAIL_TO: { type: 'text', group: 'Alerts', label: 'Alert email to (comma separated)' },
 };
 EDITABLE.RECONCILIATION_TIME.label = 'Nightly reconciliation time (HH:MM)';
 
@@ -254,6 +276,7 @@ function validate({ needShopify = true, needServer = false } = {}, cfg = config)
   if (!envLoaded && !process.env.SHOPIFY_STORE) errs.push('.env file not found. Copy .env.example to .env and fill it in.');
   if (!['total', 'prime1', 'prime1-3'].includes(config.stockSource))
     errs.push('STOCK_SOURCE must be one of: total, prime1, prime1-3');
+  if (!['franchise', 'sku'].includes(config.partKeyMode)) errs.push('PART_KEY_MODE must be franchise or sku');
   if (!['price1', 'price1_special'].includes(config.priceMode)) errs.push('PRICE_MODE must be price1 or price1_special');
   if (!['csv', 'tag'].includes(config.partsSource)) errs.push('PARTS_SOURCE must be csv or tag');
   if (!['zero', 'draft'].includes(config.blockSaleAction)) errs.push('BLOCK_SALE_ACTION must be zero or draft');
@@ -315,6 +338,7 @@ function updateSettings(values = {}, reset = []) {
     }
     if (def.type === 'time' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) throw new Error(`${def.label}: use HH:MM, e.g. 02:00`);
     if (def.type === 'select' && !Object.keys(def.options).includes(v)) throw new Error(`${def.label}: invalid choice`);
+    if (k === 'ALERT_EMAIL_TO' && v && !v.split(/[,;]/).every((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim()))) throw new Error('Alert email: invalid address');
     if (k === 'ALERT_WEBHOOK_URL' && v && !/^https:\/\//.test(v)) throw new Error('Alert webhook URL must start with https://');
     // same as .env -> no override needed
     if ((process.env[k] || '') === v) delete next[k];

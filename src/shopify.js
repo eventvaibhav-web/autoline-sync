@@ -140,6 +140,7 @@ const VARIANT_FIELDS = `
   id sku price compareAtPrice
   syncStatus: metafield(namespace: "autoline", key: "sync_status") { value }
   partNumberMf: metafield(namespace: "autoline", key: "part_number") { value }
+  installMf: metafield(namespace: "autoline", key: "installation_charge") { value }
   inventoryItem {
     id tracked
     inventoryLevels(first: 50) { nodes { id location { id name } quantities(names: ["available"]) { name quantity } } }
@@ -164,6 +165,7 @@ function mapVariant(v) {
     compareAtPrice: v.compareAtPrice,
     syncStatus: v.syncStatus ? v.syncStatus.value : null,
     partNumberOverride: v.partNumberMf ? String(v.partNumberMf.value || '').trim().toUpperCase() : '',
+    installationCharge: v.installMf ? Number(v.installMf.value) || 0 : 0,
     inventoryItemId: v.inventoryItem && v.inventoryItem.id,
     tracked: !!(v.inventoryItem && v.inventoryItem.tracked),
     levels, // locationId -> { id, name, available }  (only locations where the item is stocked)
