@@ -292,7 +292,7 @@ async function refresh() {
 
   $('reportList').innerHTML = (s.reports || []).length
     ? '<table><thead><tr><th>File</th><th></th></tr></thead><tbody>' + s.reports.map((r) => '<tr><td class="mono">' + esc(r) + '</td><td style="text-align:right"><a class="btn sm" href="/api/report?name=' + encodeURIComponent(r) + '&token=' + encodeURIComponent(token) + '">Download CSV</a></td></tr>').join('') + '</tbody></table>'
-    : '<div class="empty">No report yet. Reports are written by the nightly reconciliation (or <span class="mono">npm run reconcile</span>).</div>';
+    : '<div class="empty">No report yet. Reports are written by every full run: the nightly check or \u201cRefresh all now\u201d.</div>';
 
   $('pkInfo').innerHTML = !c.pickupRecheck ? 'Pickup re-check is OFF (Settings).' : !c.webhookSecretSet ? 'Webhook secret not set: automatic checks on new orders are off. You can still re-check an order by number.' : 'New pickup orders are checked automatically (orders/create webhook).';
   const pk = s.pickupChecks || [];

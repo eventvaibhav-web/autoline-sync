@@ -10,7 +10,7 @@ const { config } = require('./config');
 const { logger, alert } = require('./logger');
 const autoline = require('./autoline');
 const shopify = require('./shopify');
-const { resolveKey, loadFranchiseIndex } = require('./sync');
+const { resolveKey, loadFranchiseIndex, loadBundle } = require('./sync');
 
 const FILE = () => path.join(config.dataDir, 'pickup.json');
 function load() {
@@ -44,10 +44,10 @@ async function outletStock(sku, rooftopId, ctx) {
   const v = vs[0];
   const key = resolveKey({ sku, partNumber: null }, v, ctx);
   if (!key.partNumber) return { error: 'UNMAPPED: ' + key.reason };
-  let p = await autoline.loadPart(key.partNumber, rooftopId);
+  let p = await loadBundle(key.partNumber, rooftopId);
   let pn = key.partNumber;
   const skuU = sku.toUpperCase();
-  if (!p.found && key.code && skuU.startsWith(key.code) && skuU !== pn) {
+  if (!p.found && !key.bundle && key.code && skuU.startsWith(key.code) && skuU !== pn) {
     const alt = await autoline.loadPart(skuU, rooftopId);
     if (alt.found) {
       p = alt;

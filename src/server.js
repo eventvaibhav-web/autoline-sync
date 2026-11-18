@@ -186,7 +186,7 @@ const server = http.createServer(async (req, res) => {
       const csv = readReport(name);
       if (!csv) return send(res, 404, { error: 'report not found' });
       res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
-      return res.end(csv);
+      return res.end('\uFEFF' + csv);
     }
 
     if (req.method === 'POST' && url.pathname === '/api/pickup-recheck') {

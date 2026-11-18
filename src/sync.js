@@ -109,7 +109,7 @@ async function loadFranchiseIndex(ctx) {
   return idx;
 }
 
-function resolveKey(item, v, ctx) {
+function baseKey(item, v, ctx) {
   if (v.partNumberOverride) return { partNumber: v.partNumberOverride, via: 'variant_metafield' };
   if (item.partNumber) return { partNumber: item.partNumber, via: 'list' };
   const sku = v.sku || item.sku;
@@ -123,6 +123,21 @@ function resolveKey(item, v, ctx) {
       ? `brand "${v.product.vendor}" has several codes (${codes.join(', ')}); set autoline.franchise_code on the product`
       : `no franchise code for brand "${v.product.vendor || '(empty)'}"`,
   };
+}
+
+// Split AC sold as one product (agreed with Almoayyed): a product tagged INSTALLATION_TAG whose Autoline key ends
+// with "-I" (indoor) is combined with the matching "-O" (outdoor) part; ZZCARR is added in the price step.
+// A full "INDOOR+OUTDOOR" value in variant metafield autoline.part_number always wins.
+function resolveKey(item, v, ctx) {
+  const key = baseKey(item, v, ctx);
+  if (!key.partNumber) return key;
+  if (key.partNumber.includes('+')) return { ...key, bundle: true };
+  const tags = ((v.product && v.product.tags) || []).map((t) => t.toLowerCase());
+  if (config.installationTag && tags.includes(config.installationTag) && /-I$/i.test(key.partNumber)) {
+    const pn = key.partNumber;
+    return { ...key, partNumber: `${pn}+${pn.slice(0, -2)}-${pn.slice(-1) === 'i' ? 'o' : 'O'}`, via: `${key.via} + outdoor`, bundle: true };
+  }
+  return key;
 }
 
 // ---------- Helpers ----------
@@ -304,7 +319,7 @@ async function processPart(item, state, ctx) {
   if (main.down) return skip('Autoline unreachable - Shopify left unchanged');
   // SKU already carries the franchise code (e.g. Panasonic PANC-K101WTZ): try the SKU as-is
   const skuU = (v.sku || sku).toUpperCase();
-  if (!main.part.found && key.code && skuU.startsWith(key.code) && skuU !== key.partNumber) {
+  if (!main.part.found && !key.bundle && key.code && skuU.startsWith(key.code) && skuU !== key.partNumber) {
     const alt = await loadFromRooftop(skuU, config.autoline.rooftopId, ctx, base);
     if (alt.down) return skip('Autoline unreachable - Shopify left unchanged');
     if (alt.part.found) {
@@ -318,6 +333,34 @@ async function processPart(item, state, ctx) {
     }
   }
   const part = main.part;
+  if (!part.found && config.notInC1Zero) {
+    // Not in C1 but maybe in a showroom: business rule = website shows 0 ("Arriving Soon"), price unchanged, reported by email
+    const found = [];
+    for (const t of ctx.targets.filter((x) => x.rooftopId !== config.autoline.rooftopId)) {
+      const o = await loadFromRooftop(key.partNumber, t.rooftopId, ctx, base);
+      if (o.part && o.part.found) found.push(`${t.name.replace(/^.*- /, '')}: ${Math.max(0, Math.floor(Number(o.part.totalStockQty) || 0))}`);
+    }
+    if (found.length) {
+      const zero = [];
+      if (v.tracked) for (const t of ctx.targets) {
+        const lvl = v.levels[t.locationId];
+        if (lvl && lvl.available !== 0) zero.push({ locationId: t.locationId, quantity: 0, from: lvl.available, name: t.name });
+      }
+      if (zero.length) {
+        await shopify.setAvailable(v.inventoryItemId, zero);
+        for (const w of zero) {
+          logger.change('inventory_updated', { ...base, location: w.name, from: w.from, to: 0, reason: 'not_in_c1' });
+          snap.changes.push(`${w.name}: ${w.from} -> 0 (not in C1)`);
+        }
+      }
+      logger.skip('part_not_in_c1', { ...base, outlets: found.join(', ') });
+      report(ctx, 'NOT_IN_C1', base, `Not in C1, available at ${found.join(', ')}; Shopify set to 0 (Arriving Soon)`);
+      queueStatus(ctx, v, 'NOT_IN_C1');
+      snap.note = 'Not in C1, shown as Arriving Soon';
+      if (snap.changes.length) snap.result = 'changed';
+      return snap.changes.length ? snap : skip('Not in C1 (available in a showroom) - shown as Arriving Soon');
+    }
+  }
   if (!part.found) {
     logger.skip('part_not_found_in_autoline', { ...base, rooftopId: part.rooftopId, errorMessage: part.errorMessage, errorCode: part.errorCode });
     report(ctx, 'NOT_FOUND', base, `${part.rooftopId}: ${part.errorMessage} (${part.errorCode})`);
@@ -359,12 +402,28 @@ async function processPart(item, state, ctx) {
     }
   }
 
-  // 5) Price (+ installation charge from variant metafield autoline.installation_charge, e.g. AC units)
-  const install = Number(v.installationCharge) || 0;
+  // 5) Price (+ installation charge: Autoline installation part, e.g. ZZCARR, for products tagged for installation;
+  //    or a fixed amount in variant metafield autoline.installation_charge). Both are without VAT; VAT is added once.
+  let install = Number(v.installationCharge) || 0;
+  if (!install && config.installationPart && config.installationTag && tagsLower.includes(config.installationTag)) {
+    if (ctx.installPrice === undefined) {
+      const ip = await loadFromRooftop(config.installationPart, config.autoline.rooftopId, ctx, base);
+      ctx.installPrice = ip.part && ip.part.found ? Number(ip.part.price1) || 0 : 0;
+      if (!ctx.installPrice) logger.warn('installation_part_not_found', { part: config.installationPart });
+    }
+    install = ctx.installPrice;
+    if (!install) {
+      report(ctx, 'NO_INSTALL_PRICE', base, `${config.installationPart} not found in C1 - price not changed`);
+      snap.note = 'installation price missing - price not changed';
+    }
+  }
+  const installMissing = !install && config.installationTag && tagsLower.includes(config.installationTag) && !Number(v.installationCharge);
   const want = desiredPrices(install > 0 && part.price1 > 0 ? { ...part, price1: part.price1 + install, specialPrice: part.specialPrice > 0 ? part.specialPrice + install : 0 } : part);
   if (install > 0) snap.installationCharge = install;
   if (part.bundle) snap.bundle = part.bundle;
-  if (!want) {
+  if (installMissing) {
+    logger.warn('price_skipped_no_installation_price', base);
+  } else if (!want) {
     logger.warn('invalid_price_skipped', { ...base, price1: part.price1 });
     snap.note = 'price1 is 0/empty - price not changed';
   } else if (
@@ -496,8 +555,10 @@ function writeReport(rows) {
   fs.mkdirSync(reportsDir(), { recursive: true });
   const file = path.join(reportsDir(), `report-${new Date().toISOString().slice(0, 10)}.csv`);
   const esc = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
-  const lines = ['type,shopify_sku,autoline_part_number,detail', ...rows.map((r) => [r.type, r.sku, r.partNumber, r.detail].map(esc).join(','))];
-  fs.writeFileSync(file, lines.join('\r\n') + '\r\n');
+  const body = rows.length ? rows.map((r) => [r.type, r.sku, r.partNumber, r.detail].map(esc).join(',')) : ['"OK","","","Nothing to report: all listed products matched Autoline"'];
+  const lines = ['type,shopify_sku,autoline_part_number,detail', ...body];
+  // BOM so Excel / Google Sheets read it as UTF-8
+  fs.writeFileSync(file, '\uFEFF' + lines.join('\r\n') + '\r\n', 'utf8');
   return file;
 }
 function listReports() {
@@ -507,7 +568,7 @@ function listReports() {
 function readReport(name) {
   if (!/^report-\d{4}-\d{2}-\d{2}\.csv$/.test(name)) return null;
   const f = path.join(reportsDir(), name);
-  return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
+  return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').replace(/^\uFEFF/, '') : null;
 }
 
 // ---------- Run ----------
@@ -617,11 +678,18 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
   summary.report = counts;
   if (!onlySku) {
     state.lastReport = { at: new Date().toISOString(), mode, counts, rows: ctx.report.slice(0, 500) };
-    if (mode === 'reconciliation') {
+    {
+      // every full run (nightly, Refresh all) writes today's report; the nightly one also sends it by alert
       const file = writeReport(ctx.report);
       const txt = Object.entries(counts).map(([k, n]) => `${k}: ${n}`).join(', ') || 'nothing to report';
       logger.info('daily_report_written', { file, counts });
-      await alert('daily_report', `Daily report: ${txt}. File: ${require('path').basename(file)}`, { counts }, { force: true });
+      if (mode === 'reconciliation') {
+        const notInC1 = ctx.report.filter((r) => r.type === 'NOT_IN_C1');
+        const list = notInC1.map((r) => `- ${r.sku} (${r.partNumber}): ${r.detail}`).join('\n');
+        await alert('daily_report', `Daily report: ${txt}. File: ${require('path').basename(file)}` +
+          (notInC1.length ? `\n\nProducts not in C1 but available in a showroom (shown as Arriving Soon on the website):\n${list}` : ''),
+          { counts }, { force: true });
+      }
     }
   }
 

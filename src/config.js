@@ -113,6 +113,11 @@ function build() {
   priceVatPercent: num('PRICE_VAT_PERCENT', 10),
   // true = if a product is not set up at a mapped location (e.g. Gudaibiya), the sync sets it up there
   stockAtAllLocations: bool('STOCK_AT_ALL_LOCATIONS', true),
+  // Part missing in C1 but present in a showroom: set Shopify stock 0 everywhere ("Arriving Soon") and report it
+  notInC1Zero: bool('NOT_IN_C1_ZERO', true),
+  // Installation charge part in C1 (e.g. ZZCARR) added to the price of products with INSTALLATION_TAG
+  installationPart: env('INSTALLATION_PART', 'ZZCARR').trim().toUpperCase(),
+  installationTag: env('INSTALLATION_TAG', 'installation').trim().toLowerCase(),
   // "ROOFTOP=gid://shopify/Location/ID, ROOFTOP=..."  (which Autoline rooftop fills which Shopify location)
   locationStockMap: parseMap(env('LOCATION_STOCK_MAP', '')),
   // Rooftops that are pickup outlets; delivery-only parts get 0 stock there
@@ -208,6 +213,9 @@ const EDITABLE = {
   PRICE_MODE: { type: 'select', group: 'Price & product', label: 'Selling price', options: { price1: 'Price1 only', price1_special: 'Price1 + specialPrice promo' } },
   PRICE_VAT_PERCENT: { type: 'number', group: 'Price & product', label: 'Add VAT to price1 (%)', min: 0, max: 100 },
   STOCK_AT_ALL_LOCATIONS: { type: 'bool', group: 'Autoline', label: 'Set up product at every mapped location (e.g. Gudaibiya) if missing' },
+  INSTALLATION_PART: { type: 'text', group: 'Price & product', label: 'Installation charge part (C1)' },
+  INSTALLATION_TAG: { type: 'text', group: 'Price & product', label: 'Tag for products with installation (e.g. AC)' },
+  NOT_IN_C1_ZERO: { type: 'bool', group: 'Autoline', label: 'Not in C1 but in a showroom: show 0 (Arriving Soon) and report' },
   PRICE_SWING_PERCENT: { type: 'number', group: 'Price & product', label: 'Report price change above (%)', min: 1, max: 1000 },
   DESCRIPTION_SYNC_ENABLED: { type: 'bool', group: 'Price & product', label: 'Sync description from Autoline' },
   BLOCK_SALE_ACTION: { type: 'select', group: 'Price & product', label: 'When blockSale = Y', options: { zero: 'Stock 0 + tag', draft: 'Set product to Draft' } },
