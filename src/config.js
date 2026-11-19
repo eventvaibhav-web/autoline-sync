@@ -143,6 +143,8 @@ function build() {
   // Pickup order re-check (orders/create webhook)
   pickupRecheck: bool('PICKUP_RECHECK', true),
   pickupAlertTag: env('PICKUP_ALERT_TAG', 'pickup-stock-alert').trim(),
+  // Check Shopify for new pickup orders every N minutes (works without a public URL / webhook). 0 = off.
+  pickupPollMinutes: num('PICKUP_POLL_MINUTES', 3),
   priceSwingPercent: num('PRICE_SWING_PERCENT', 50),
   safetyBuffer: parseNumMap(env('SAFETY_BUFFER', '')),
   shopify: {
@@ -226,6 +228,7 @@ const EDITABLE = {
   DELIVERY_ONLY_ACTION: { type: 'select', group: 'Delivery only', label: 'Outlet stock for delivery-only', options: { zero: 'Set to 0', deactivate: 'Deactivate inventory' } },
   PICKUP_RECHECK: { type: 'bool', group: 'Pickup orders', label: 'Re-check outlet stock in Autoline when a pickup order arrives' },
   PICKUP_ALERT_TAG: { type: 'text', group: 'Pickup orders', label: 'Order tag when outlet stock is short' },
+  PICKUP_POLL_MINUTES: { type: 'number', group: 'Pickup orders', label: 'Check Shopify for new pickup orders every (minutes, 0 = off)', min: 0, max: 60 },
   OUTAGE_ALERT_MINUTES: { type: 'number', group: 'Alerts', label: 'Alert when Autoline down (minutes)', min: 5, max: 1440 },
   ALERT_WEBHOOK_URL: { type: 'text', group: 'Alerts', label: 'Alert webhook URL (Teams/Slack)' },
   ALERT_EMAIL_TO: { type: 'text', group: 'Alerts', label: 'Alert email to (comma separated)' },

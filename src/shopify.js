@@ -384,6 +384,15 @@ async function findOrderIdByName(name) {
   return d.orders.nodes[0] ? d.orders.nodes[0].id : null;
 }
 
+// Orders created at/after an ISO time, oldest first (ids and names only - no customer data)
+async function listOrdersCreatedSince(sinceIso, first = 50) {
+  const d = await gql(
+    `query($q: String!, $n: Int!) { orders(first: $n, query: $q, sortKey: CREATED_AT) { nodes { id name createdAt } } }`,
+    { q: `created_at:>='${sinceIso}'`, n: first }
+  );
+  return d.orders.nodes;
+}
+
 async function listWebhooks() {
   const d = await gql(`{ webhookSubscriptions(first: 50) { nodes { id topic endpoint { __typename ... on WebhookHttpEndpoint { callbackUrl } } } } }`);
   return d.webhookSubscriptions.nodes.map((w) => ({ id: w.id, topic: w.topic, url: w.endpoint && w.endpoint.callbackUrl }));
@@ -412,6 +421,7 @@ module.exports = {
   listTaggedSkus,
   getOrderForRecheck,
   findOrderIdByName,
+  listOrdersCreatedSince,
   listWebhooks,
   createOrdersWebhook,
   getFranchiseMaster,

@@ -6,4 +6,6 @@ state.json
 state.json.tmp
 settings.json
 settings.json.tmp
-env-file.txt
+pickup.json
+pickup.json.tmp
+*.xlsx

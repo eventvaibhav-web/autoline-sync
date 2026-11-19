@@ -125,16 +125,64 @@ async function recheckOrder(orderId, { trigger = 'webhook', force = false } = {}
     }
   }
   store.processed.push(order.id);
-  store.checks.push(result);
+  // Polling sees every new order; only pickup orders belong in the dashboard list.
+  if (result.pickup || trigger !== 'poll') store.checks.push(result);
   save(store);
   return result;
+}
+
+// ---------- Polling: find new orders in Shopify and re-check the pickup ones ----------
+// Works without a public URL. Orders already checked (by webhook, poll or dashboard) are skipped.
+let polling = false;
+async function pollNewOrders() {
+  if (polling) return { skipped: true, reason: 'poll already running' };
+  polling = true;
+  try {
+    const store = load();
+    const now = new Date();
+    if (!store.pollSince) {
+      // First run: start from now, so old orders are not checked again.
+      store.pollSince = now.toISOString();
+      store.lastPollAt = now.toISOString();
+      save(store);
+      logger.info('pickup_poll_started', { since: store.pollSince });
+      return { checked: 0, first: true };
+    }
+    // 10 min overlap so an order created during the last poll is never missed; duplicates are skipped by id.
+    const since = new Date(new Date(store.pollSince).getTime() - 10 * 60000).toISOString();
+    const orders = await shopify.listOrdersCreatedSince(since, 50);
+    const fresh = orders.filter((o) => !store.processed.includes(o.id));
+    let checked = 0;
+    for (const o of fresh) {
+      try {
+        await recheckOrder(o.id, { trigger: 'poll' });
+        checked++;
+      } catch (e) {
+        logger.error('pickup_poll_order_failed', { orderId: o.id, order: o.name, error: e.message });
+      }
+    }
+    const s2 = load();
+    // Move the window forward only to the newest order seen (or now if none), so nothing is skipped.
+    s2.pollSince = orders.length === 50 ? orders[orders.length - 1].createdAt : now.toISOString();
+    s2.lastPollAt = now.toISOString();
+    save(s2);
+    if (checked) logger.info('pickup_poll', { newOrders: checked });
+    return { checked };
+  } finally {
+    polling = false;
+  }
+}
+
+function pollInfo() {
+  const s = load();
+  return { lastPollAt: s.lastPollAt || null, pollSince: s.pollSince || null };
 }
 
 function recentChecks(n = 50) {
   return load().checks.slice(-n).reverse();
 }
 
-module.exports = { verifyWebhook, recheckOrder, recentChecks };
+module.exports = { verifyWebhook, recheckOrder, recentChecks, pollNewOrders, pollInfo };
 
 // ---------- CLI: npm run recheck-order -- 1001   (order number, or gid://shopify/Order/...) ----------
 if (require.main === module) {

@@ -27,6 +27,16 @@ function localParts(tz) {
   return { date: `${p.year}-${p.month}-${p.day}`, hhmm: `${p.hour === '24' ? '00' : p.hour}:${p.minute}` };
 }
 
+// Pickup order polling (no public URL needed). Independent of AUTO_SYNC: it only reads stock and tags/alerts short orders.
+let lastPollRun = 0;
+setInterval(() => {
+  const m = config.pickupPollMinutes;
+  if (!config.pickupRecheck || !m || m <= 0) return;
+  if (Date.now() - lastPollRun < m * 60000 - 5000) return;
+  lastPollRun = Date.now();
+  pickup.pollNewOrders().catch((e) => logger.error('pickup_poll_failed', { error: e.message }));
+}, 30000);
+
 let nextScheduledAt = null;
 let scheduleTimer = null;
 function scheduleNext() {
@@ -157,7 +167,7 @@ const server = http.createServer(async (req, res) => {
           priceMode: config.priceMode, locationStockMap: config.locationStockMap, outletRooftops: config.outletRooftops,
           partsSource: config.partsSource, syncTag: config.syncTag, blockSaleAction: config.blockSaleAction,
           deliveryOnlyAction: config.deliveryOnlyAction, statusMetafields: config.statusMetafields, autoSync: config.sync.autoSync,
-          overrides: overridesActive(), pickupRecheck: config.pickupRecheck, webhookSecretSet: !!config.shopify.webhookSecret,
+          overrides: overridesActive(), pickupRecheck: config.pickupRecheck, webhookSecretSet: !!config.shopify.webhookSecret, pickupPollMinutes: config.pickupPollMinutes, pickupPoll: pickup.pollInfo(),
           alertEmail: !!(config.alerts.emailTo.length && config.alerts.smtp.host),
         },
         autoline: { lastSuccessAt: state.autolineLastSuccessAt, downSince: state.autolineDownSince, outageAlertSent: state.outageAlertSent },

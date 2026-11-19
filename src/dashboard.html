@@ -524,9 +524,11 @@ function renderPickup() {
   setHtml('pkMini', '<div class="chips"><span class="chip">Checked <span class="n">' + td.length + '</span></span><span class="chip" style="color:var(--bad)">Short <span class="n">' + nShort + '</span></span><span class="chip" style="color:var(--ok)">OK <span class="n">' + nOk + '</span></span></div>' +
     '<div class="small muted" style="margin-top:10px">' + (pk[0] ? 'Last check: ' + esc(ord(pk[0].order)) + ' at ' + tShort(pk[0].at) : 'No pickup orders checked yet.') + '</div>');
 
+  const poll = c.pickupPoll || {};
   $('pkInfo').innerHTML = !c.pickupRecheck ? ic('info-circle') + ' Pickup re-check is OFF (Settings).'
-    : !c.webhookSecretSet ? ic('info-circle') + ' Automatic checks start once the webhook is registered. Until then, re-check an order by its number.'
-    : ic('circle-check') + ' New pickup orders are checked automatically. Use Re-check to check one again.';
+    : c.pickupPollMinutes > 0 ? ic('circle-check') + ' New pickup orders are checked automatically every ' + esc(c.pickupPollMinutes) + ' min' + (poll.lastPollAt ? ' · last check ' + tShort(poll.lastPollAt) : ' · first check within ' + esc(c.pickupPollMinutes) + ' min') + '. Use Re-check to check one again.'
+    : c.webhookSecretSet ? ic('circle-check') + ' New pickup orders are checked automatically (webhook). Use Re-check to check one again.'
+    : ic('info-circle') + ' Automatic checks are off (Settings: check every 0 min). Re-check an order by its number.';
 
   const counts = { all: pk.length, short: 0, ok: 0, check: 0 };
   pk.forEach((r) => { const k = pkStatus(r); if (counts[k] !== undefined) counts[k]++; });
@@ -539,7 +541,7 @@ function renderPickup() {
     const lines = (r.lines || []);
     const prod = lines.map((l) => '<div style="margin-bottom:4px"><span class="strong">' + esc(titles[l.sku] || l.sku) + '</span><div class="small muted">' + (titles[l.sku] ? esc(l.sku) + ' · ' : '') + esc(outlet(l.location)) + (l.note ? ' · ' + esc(l.note) : '') + '</div></div>').join('') || (r.problems && r.problems.length ? '<span class="small muted">' + esc(r.problems.join('; ')) + '</span>' : '<span class="muted">—</span>');
     const qty = lines.map((l) => '<div style="margin-bottom:4px;line-height:2.6"><span class="qty' + (l.status === 'SHORT' ? ' bad' : '') + '">' + esc(l.ordered) + ' / ' + esc(l.autolineQty ?? '?') + '</span></div>').join('') || '—';
-    const how = r.trigger === 'webhook' ? '<span class="badge b-info">Automatic</span>' : '<span class="badge b-neutral">Manual</span>';
+    const how = r.trigger === 'webhook' || r.trigger === 'poll' ? '<span class="badge b-info">Automatic</span>' : '<span class="badge b-neutral">Manual</span>';
     const mail = st === 'short' || st === 'check' ? (c.alertEmail ? ' <span class="badge b-warn">' + ic('mail') + 'Email sent</span>' : '') : '';
     return '<tr><td><div class="strong">' + esc(ord(r.order)) + '</div></td><td>' + badge + '</td><td>' + prod + '</td><td>' + qty + '</td><td class="small"><div>' + tShort(r.at) + '</div><div style="margin-top:4px">' + how + mail + '</div></td></tr>';
   }).join('') || emptyRow(5, 'building-store', pk.length ? 'No orders match this filter.' : 'No pickup orders checked yet.'));
