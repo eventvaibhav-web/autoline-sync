@@ -3,278 +3,479 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Autoline → Shopify Sync</title>
+<title>YK Sync · Autoline → Shopify</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%233b5bdb%27/%3E%3Cpath d=%27M9 13h14l-4-4M23 19H9l4 4%27 stroke=%27white%27 stroke-width=%272.4%27 fill=%27none%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
+<script>
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('yk-theme'); } catch (e) {}
+  if (t !== 'dark' && t !== 'light') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
 <style>
 :root{
-  --bg:#f6f7f9;--panel:#fff;--ink:#14171f;--muted:#667085;--line:#e6e8ec;--soft:#f2f4f7;
-  --brand:#2f5bea;--brand-ink:#fff;--ok:#12805c;--ok-bg:#e7f6ef;--warn:#9a6700;--warn-bg:#fff6dd;
-  --bad:#b42318;--bad-bg:#fdecea;--info:#1f4fd1;--info-bg:#e9efff;--radius:12px;
-  --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+  --bg:#f5f6f8;--panel:#ffffff;--panel-2:#fafbfc;--side:#fbfbfc;--ink:#14171f;--ink-2:#475467;--muted:#8a94a6;--line:#e7e9ee;--line-2:#d6dae1;--hover:#f1f3f6;
+  --brand:#3b5bdb;--brand-h:#3451c7;--brand-soft:#eef2ff;--brand-ink:#3046b8;
+  --ok:#0f7a55;--ok-bg:#e6f6ee;--warn:#946200;--warn-bg:#fff5d9;--bad:#c0322b;--bad-bg:#fdeceb;--info:#2f55d4;--info-bg:#ebf0ff;
+  --sk1:#eceef2;--sk2:#f6f7f9;--shadow:0 1px 2px rgba(16,24,40,.04);--shadow-lg:0 12px 32px rgba(16,24,40,.14);
+  --r:10px;--r-lg:14px;--ease:cubic-bezier(.2,.7,.2,1);
+}
+[data-theme="dark"]{
+  --bg:#0f1115;--panel:#171a21;--panel-2:#1b1f27;--side:#13161c;--ink:#e8eaef;--ink-2:#b4bccb;--muted:#7f8899;--line:#262b35;--line-2:#323946;--hover:#1f242d;
+  --brand:#5b7cfa;--brand-h:#6d8bff;--brand-soft:#1d2540;--brand-ink:#a9bbff;
+  --ok:#4cc995;--ok-bg:#14271f;--warn:#e7b549;--warn-bg:#2a2313;--bad:#ff7b72;--bad-bg:#2d1817;--info:#8aa4ff;--info-bg:#1b2238;
+  --sk1:#1e222b;--sk2:#262b35;--shadow:0 1px 2px rgba(0,0,0,.3);--shadow-lg:0 12px 32px rgba(0,0,0,.5);
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+html.theme-anim,html.theme-anim *{transition:background-color .25s var(--ease),border-color .25s var(--ease),color .25s var(--ease)!important}
 a{color:var(--brand)}
-button{font:inherit;cursor:pointer}
-.top{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
-.top-in{max-width:1400px;margin:auto;padding:12px 24px;display:flex;align-items:center;gap:16px}
-.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
-.logo i{width:28px;height:28px;border-radius:8px;background:var(--brand);display:grid;place-items:center;color:#fff;font-style:normal;font-size:14px}
-.store{color:var(--muted);font-size:13px}
+button{font:inherit;cursor:pointer;color:inherit}
+.ic{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ic.sm{width:15px;height:15px}.ic.lg{width:20px;height:20px}
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh}
+/* sidebar */
+.side{position:sticky;top:0;height:100vh;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 12px;z-index:40}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px}
+.brand .lg{width:32px;height:32px;border-radius:9px;background:var(--brand);color:#fff;display:grid;place-items:center}
+.brand b{font-size:15px;font-weight:650;display:block;line-height:1.2}
+.brand span{font-size:11.5px;color:var(--muted)}
+.grp{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:14px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:8px 10px;border-radius:8px;color:var(--ink-2);font-weight:500;text-align:left;position:relative}
+.nav:hover{background:var(--hover);color:var(--ink)}
+.nav.on{background:var(--brand-soft);color:var(--brand-ink)}
+.nav.on::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--brand)}
+.nav .cnt{margin-left:auto;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--hover);color:var(--muted)}
+.nav .cnt.bad{background:var(--bad-bg);color:var(--bad)}
+.side .foot{margin-top:auto;border-top:1px solid var(--line);padding:12px 8px 0;display:grid;gap:7px;font-size:12px;color:var(--ink-2)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--muted);vertical-align:1px}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}.dot.info{background:var(--info)}
+.dot.pulse{animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--info) 50%,transparent)}100%{box-shadow:0 0 0 7px transparent}}
+/* main */
+.main{min-width:0;display:flex;flex-direction:column}
+.top{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
+.top-in{display:flex;align-items:center;gap:12px;padding:14px 28px}
+.top h1{margin:0;font-size:18px;font-weight:650;letter-spacing:-.01em}
+.top .sub{font-size:12.5px;color:var(--muted)}
 .sp{flex:1}
-.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--soft);color:var(--muted)}
-.pill.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
-.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
-.pill.bad{background:var(--bad-bg);color:var(--bad)}.pill.info{background:var(--info-bg);color:var(--info)}
-.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:8px;font-weight:600}
-.btn:hover{background:var(--soft)}
-.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
-.btn.primary:hover{filter:brightness(.95)}
-.btn.sm{padding:5px 10px;font-size:12px}
-.btn:disabled{opacity:.5;cursor:default}
-.tabs{max-width:1400px;margin:auto;padding:0 24px;display:flex;gap:4px}
-.tab{border:0;background:none;padding:10px 14px;color:var(--muted);font-weight:600;border-bottom:2px solid transparent}
-.tab.on{color:var(--ink);border-bottom-color:var(--brand)}
-.tab .n{margin-left:6px;font-size:11px;background:var(--soft);padding:1px 7px;border-radius:999px}
-main{max-width:1400px;margin:auto;padding:20px 24px 80px}
-.banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;margin-bottom:10px;font-weight:500}
-.banner.warn{background:var(--warn-bg);color:var(--warn)}.banner.bad{background:var(--bad-bg);color:var(--bad)}
+.iconbtn.menu{display:none}
+.content{padding:22px 28px 110px;max-width:1440px;width:100%}
+/* controls */
+.btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);font-weight:550;font-size:13.5px;white-space:nowrap;transition:background-color .15s,border-color .15s,transform .08s,box-shadow .15s}
+.btn:hover{background:var(--hover)}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible,.nav:focus-visible,.chip:focus-visible,.iconbtn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 1px 2px rgba(59,91,219,.25)}
+.btn.primary:hover{background:var(--brand-h);border-color:var(--brand-h)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--hover)}
+.btn.sm{height:30px;padding:0 11px;font-size:12.5px;border-radius:8px}
+.btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+.btn .ic.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.iconbtn{width:36px;height:36px;display:grid;place-items:center;border-radius:9px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2);transition:background-color .15s}
+.iconbtn:hover{background:var(--hover);color:var(--ink)}
+.iconbtn .ic{transition:transform .35s var(--ease)}
+.iconbtn:hover .ic{transform:rotate(-20deg)}
+.input,select,textarea{height:36px;border:1px solid var(--line-2);background:var(--panel);border-radius:9px;padding:0 12px;font:inherit;font-size:13.5px;color:var(--ink);transition:border-color .15s,box-shadow .15s}
+textarea{height:auto;padding:8px 12px}
+.input::placeholder{color:var(--muted)}
+.input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 18%,transparent)}
+.searchbox{position:relative}
+.searchbox .ic{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.searchbox .input{padding-left:34px;min-width:300px}
+.pill{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:999px;font-size:12px;font-weight:600;background:var(--hover);color:var(--ink-2)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.bad{background:var(--bad-bg);color:var(--bad)}.pill.info{background:var(--info-bg);color:var(--info)}
+.pill .dot{margin:0;background:currentColor}
+/* pages */
+.page{display:none}
+.page.on{display:block;animation:enter .26s var(--ease) both}
+@keyframes enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*,*::before{animation:none!important;transition:none!important}}
+.banner{display:flex;gap:10px;align-items:center;padding:11px 14px;border-radius:var(--r);margin-bottom:12px;font-weight:500;font-size:13.5px;animation:enter .25s var(--ease) both}
+.banner.warn{background:var(--warn-bg);color:var(--warn)}.banner.bad{background:var(--bad-bg);color:var(--bad)}.banner.info{background:var(--info-bg);color:var(--info)}
+.linkbtn{border:0;background:none;color:var(--brand);font-weight:600;font-size:13px;padding:0;text-decoration:underline;text-underline-offset:3px;text-decoration-color:transparent;transition:text-decoration-color .15s}
+.linkbtn:hover{text-decoration-color:currentColor}
 .grid{display:grid;gap:14px}
 .g5{grid-template-columns:repeat(5,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
-@media(max-width:1000px){.g5,.g3{grid-template-columns:repeat(2,minmax(0,1fr))}.g2{grid-template-columns:1fr}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
-.kpi{padding:16px}
-.kpi .k{color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-.kpi .v{font-size:26px;font-weight:700;margin-top:6px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow)}
+.sec{padding:18px 20px}
+.sec h3,.card-h{margin:0 0 14px;font-size:14.5px;font-weight:650;display:flex;align-items:center;gap:8px}
+.card-h .ic{color:var(--muted)}
+.kpi{padding:16px 18px;position:relative;overflow:hidden}
+.kpi .k{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-size:12.5px;font-weight:550}
+.kpi .k .ib{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--hover);color:var(--ink-2)}
+.kpi.t-ok .ib{background:var(--ok-bg);color:var(--ok)}.kpi.t-info .ib{background:var(--info-bg);color:var(--info)}.kpi.t-warn .ib{background:var(--warn-bg);color:var(--warn)}.kpi.t-bad .ib{background:var(--bad-bg);color:var(--bad)}
+.kpi .v{font-size:28px;font-weight:700;margin-top:10px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .kpi .s{color:var(--muted);font-size:12px;margin-top:2px}
-.sec{padding:16px 18px}
-.sec h3{margin:0 0 12px;font-size:14px}
-.kv{display:grid;grid-template-columns:200px 1fr;gap:8px 12px;font-size:13px}
-.kv div:nth-child(odd){color:var(--muted)}
+.kv{display:grid;grid-template-columns:190px 1fr;gap:10px 14px;font-size:13.5px}
+.kv>div:nth-child(odd){color:var(--muted)}
+.kv>div:nth-child(even){font-weight:500}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{border:1px solid var(--line);background:var(--panel);padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--muted)}
-.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
-.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-.input,select,textarea{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;font:inherit;color:var(--ink)}
-.input:focus,select:focus,textarea:focus{outline:2px solid var(--info-bg);border-color:var(--brand)}
-.search{min-width:280px}
-table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);background:#fafbfc;position:sticky;top:0}
-td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;border:1px solid var(--line-2);background:var(--panel);padding:0 13px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--ink-2);transition:all .15s}
+.chip:hover{border-color:var(--muted)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.chip .n{font-variant-numeric:tabular-nums;opacity:.75}
+span.chip{cursor:default}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+table{width:100%;border-collapse:separate;border-spacing:0}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--panel-2);position:sticky;top:0;z-index:1;white-space:nowrap}
+th:first-child{border-top-left-radius:var(--r-lg)}th:last-child{border-top-right-radius:var(--r-lg)}
+td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+tbody tr{transition:background-color .12s}
+tbody tr:hover td{background:var(--panel-2)}
 tr:last-child td{border-bottom:0}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
-.muted{color:var(--muted)}.small{font-size:12px}
-.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
-.b-changed{background:var(--info-bg);color:var(--info)}.b-unchanged{background:var(--soft);color:var(--muted)}
-.b-skipped{background:var(--warn-bg);color:var(--warn)}.b-error{background:var(--bad-bg);color:var(--bad)}
-.loc{display:flex;justify-content:space-between;gap:8px;font-size:12px}
-.loc b{font-weight:600}
-.tablewrap{overflow:auto;max-height:70vh}
-.more{padding:12px;text-align:center}
+.muted{color:var(--muted)}.small{font-size:12px}.strong{font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:650;white-space:nowrap}
+.badge .dot{width:6px;height:6px;margin:0;background:currentColor}
+.b-changed,.b-ok{background:var(--ok-bg);color:var(--ok)}.b-unchanged,.b-neutral{background:var(--hover);color:var(--ink-2)}
+.b-skipped,.b-warn{background:var(--warn-bg);color:var(--warn)}.b-error,.b-bad{background:var(--bad-bg);color:var(--bad)}.b-info{background:var(--info-bg);color:var(--info)}
+.loc{display:flex;justify-content:space-between;gap:10px;font-size:12.5px}
+.loc b{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tablewrap{overflow:auto;max-height:calc(100vh - 230px);border-radius:var(--r-lg)}
+.more{padding:12px;text-align:center;border-top:1px solid var(--line)}
 .lv-change{color:var(--info);font-weight:600}.lv-warn,.lv-skip{color:var(--warn);font-weight:600}.lv-error,.lv-alert{color:var(--bad);font-weight:700}
-.logd{white-space:pre-wrap;word-break:break-all}
+.logd{white-space:pre-wrap;word-break:break-all;color:var(--ink-2)}
+.empty{padding:40px 20px;text-align:center;color:var(--muted)}
+.empty .ic{width:30px;height:30px;display:block;margin:0 auto 10px;opacity:.7}
+.qty{font-variant-numeric:tabular-nums;font-weight:600}
+.qty.bad{color:var(--bad)}
+/* alerts */
+.alert-item{display:flex;gap:14px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.alert-item:last-child{border-bottom:0}
+.alert-item .ib{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--bad-bg);color:var(--bad);flex:none}
+.alert-item .ib.warn{background:var(--warn-bg);color:var(--warn)}
+.alert-item .ttl{font-weight:600}
+.alert-item .msg{color:var(--ink-2);font-size:13px;margin-top:2px}
 /* settings */
-.set-group{margin-bottom:16px}
-.set-group h3{margin:0;padding:14px 18px;border-bottom:1px solid var(--line);font-size:14px}
-.field{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,1.4fr);gap:16px;padding:14px 18px;border-bottom:1px solid var(--line);align-items:center}
+.set-group{margin-bottom:16px;overflow:hidden}
+.set-group h3{margin:0;padding:15px 20px;border-bottom:1px solid var(--line);font-size:14.5px;font-weight:650}
+.field{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,1.3fr);gap:18px;padding:15px 20px;border-bottom:1px solid var(--line);align-items:center;transition:background-color .2s}
 .field:last-child{border-bottom:0}
 .field .lbl{font-weight:600}
-.field .meta{font-size:12px;color:var(--muted);margin-top:3px}
+.field .meta{font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .field .ctl{display:flex;gap:10px;align-items:center}
 .field .ctl .input,.field .ctl select,.field .ctl textarea{width:100%}
-.field.dirty{background:#fbfcff}
-.field.dirty .lbl::after{content:" • unsaved";color:var(--brand);font-size:12px;font-weight:600}
-.src{font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.field.dirty{background:var(--brand-soft)}
+.field.dirty .lbl::after{content:" · unsaved";color:var(--brand-ink);font-size:12px;font-weight:600}
+.src{font-size:11px;font-weight:650;padding:1px 8px;border-radius:999px;background:var(--hover);color:var(--ink-2)}
 .src.dash{background:var(--info-bg);color:var(--info)}
-.linkbtn{border:0;background:none;color:var(--brand);font-size:12px;padding:0}
-.switch{position:relative;width:42px;height:24px;flex:none}
-.switch input{opacity:0;width:0;height:0}
-.switch span{position:absolute;inset:0;background:#d0d5dd;border-radius:999px;transition:.15s}
-.switch span::before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.switch{position:relative;width:42px;height:24px;flex:none;cursor:pointer}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch span{position:absolute;inset:0;background:var(--line-2);border-radius:999px;transition:background-color .2s}
+.switch span::before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .22s var(--ease);box-shadow:0 1px 3px rgba(0,0,0,.25)}
 .switch input:checked+span{background:var(--brand)}
 .switch input:checked+span::before{transform:translateX(18px)}
-.savebar{position:fixed;left:0;right:0;bottom:0;background:var(--ink);color:#fff;z-index:30;display:none}
-.savebar.show{display:block}
-.savebar .in{max-width:1400px;margin:auto;padding:12px 24px;display:flex;gap:12px;align-items:center}
-.savebar .btn{border-color:#444;background:#2a2f3a;color:#fff}
-.savebar .btn.primary{background:var(--brand);border-color:var(--brand)}
-.err{background:var(--bad-bg);color:var(--bad);padding:10px 14px;border-radius:8px;margin-bottom:12px;display:none}
-.toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:#fff;padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);display:none;z-index:40}
+.switch input:focus-visible+span{outline:2px solid var(--brand);outline-offset:2px}
+.savebar{position:fixed;left:50%;bottom:20px;transform:translate(-50%,140%);opacity:0;pointer-events:none;background:var(--panel);border:1px solid var(--line-2);color:var(--ink);z-index:50;border-radius:14px;box-shadow:var(--shadow-lg);transition:transform .28s var(--ease),opacity .2s;width:min(620px,calc(100% - 32px))}
+.savebar.show{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+.savebar .in{padding:10px 12px 10px 18px;display:flex;gap:10px;align-items:center;font-weight:600}
+.err{background:var(--bad-bg);color:var(--bad);padding:11px 14px;border-radius:var(--r);margin-bottom:12px;display:none}
+.toast{position:fixed;right:22px;bottom:22px;background:var(--ink);color:var(--panel);padding:11px 16px;border-radius:11px;box-shadow:var(--shadow-lg);z-index:60;font-weight:500;transform:translateY(20px);opacity:0;pointer-events:none;transition:transform .25s var(--ease),opacity .2s;max-width:420px}
+.toast.show{transform:none;opacity:1}
+/* skeleton */
+.sk{display:block;border-radius:6px;background:linear-gradient(90deg,var(--sk1) 25%,var(--sk2) 37%,var(--sk1) 63%);background-size:400% 100%;animation:sk 1.3s ease infinite;height:12px}
+@keyframes sk{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.sk.h28{height:28px;width:60px;margin-top:12px}.sk.w40{width:40%}.sk.w60{width:60%}.sk.w80{width:80%}.sk.w30{width:30%}
 .hide{display:none!important}
-.empty{padding:28px;text-align:center;color:var(--muted)}
+.scrim{display:none}
+@media(max-width:1200px){.g5{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:960px){
+  .app{grid-template-columns:1fr}
+  .side{position:fixed;left:0;top:0;bottom:0;width:250px;transform:translateX(-102%);transition:transform .25s var(--ease)}
+  body.nav-open .side{transform:none;box-shadow:var(--shadow-lg)}
+  body.nav-open .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:35}
+  .iconbtn.menu{display:grid}
+  .g5,.g3{grid-template-columns:repeat(2,minmax(0,1fr))}.g2{grid-template-columns:1fr}
+  .top-in{padding:12px 16px}.content{padding:16px 16px 110px}
+  .searchbox .input{min-width:0;width:100%}.searchbox{flex:1}
+  .kv{grid-template-columns:140px 1fr}
+  .field{grid-template-columns:1fr}
+  .top .sub,#statePill,#syncAll span{display:none}
+  #syncAll{padding:0 11px}
+  .top h1{font-size:16px}
+}
 </style>
 </head>
 <body>
-<header class="top">
-  <div class="top-in">
-    <div class="logo"><i>⇄</i>Autoline → Shopify</div>
-    <span class="store" id="store"></span>
-    <div class="sp"></div>
-    <span class="pill dot" id="statePill">Loading…</span>
-    <button class="btn primary" id="syncAll">Refresh all now</button>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none"><symbol id="i-arrows-exchange" viewBox="0 0 24 24"><path d="M7 10h14l-4 -4" /> <path d="M17 14h-14l4 4" /></symbol><symbol id="i-layout-dashboard" viewBox="0 0 24 24"><path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1" /> <path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1" /> <path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1" /> <path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1" /></symbol><symbol id="i-package" viewBox="0 0 24 24"><path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5" /> <path d="M12 12l8 -4.5" /> <path d="M12 12l0 9" /> <path d="M12 12l-8 -4.5" /> <path d="M16 5.25l-8 4.5" /></symbol><symbol id="i-file-report" viewBox="0 0 24 24"><path d="M13 17a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" /> <path d="M17 13v4h4" /> <path d="M12 3v4a1 1 0 0 0 1 1h4" /> <path d="M11.5 21h-6.5a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v2m0 3v4" /></symbol><symbol id="i-building-store" viewBox="0 0 24 24"><path d="M3 21l18 0" /> <path d="M3 7v1a3 3 0 0 0 6 0v-1m0 1a3 3 0 0 0 6 0v-1m0 1a3 3 0 0 0 6 0v-1h-18l2 -4h14l2 4" /> <path d="M5 21l0 -10.15" /> <path d="M19 21l0 -10.15" /> <path d="M9 21v-4a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v4" /></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6" /> <path d="M9 17v1a3 3 0 0 0 6 0v-1" /></symbol><symbol id="i-list-details" viewBox="0 0 24 24"><path d="M13 5h8" /> <path d="M13 9h5" /> <path d="M13 15h8" /> <path d="M13 19h5" /> <path d="M3 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" /> <path d="M3 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" /></symbol><symbol id="i-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065" /> <path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></symbol><symbol id="i-sun" viewBox="0 0 24 24"><path d="M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" /> <path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7" /></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454l0 .008" /></symbol><symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /> <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></symbol><symbol id="i-search" viewBox="0 0 24 24"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" /> <path d="M21 21l-6 -6" /></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2" /> <path d="M7 11l5 5l5 -5" /> <path d="M12 4l0 12" /></symbol><symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="M12 9v4" /> <path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /> <path d="M12 16h.01" /></symbol><symbol id="i-circle-check" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" /> <path d="M9 12l2 2l4 -4" /></symbol><symbol id="i-circle-x" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" /> <path d="M10 10l4 4m0 -4l-4 4" /></symbol><symbol id="i-clock" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /> <path d="M12 7v5l3 3" /></symbol><symbol id="i-truck" viewBox="0 0 24 24"><path d="M5 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /> <path d="M15 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /> <path d="M5 17h-2v-11a1 1 0 0 1 1 -1h9v12m-4 0h6m4 0h2v-6h-8m0 -5h5l3 5" /></symbol><symbol id="i-mail" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10" /> <path d="M3 7l9 6l9 -6" /></symbol><symbol id="i-menu-2" viewBox="0 0 24 24"><path d="M4 6l16 0" /> <path d="M4 12l16 0" /> <path d="M4 18l16 0" /></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6l-12 12" /> <path d="M6 6l12 12" /></symbol><symbol id="i-info-circle" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /> <path d="M12 9h.01" /> <path d="M11 12h1v4h1" /></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6l-6 6" /></symbol><symbol id="i-player-pause" viewBox="0 0 24 24"><path d="M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /> <path d="M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /></symbol></svg>
+<div class="app">
+<aside class="side" id="side">
+  <div class="brand"><div class="lg"><svg class="ic"><use href="#i-arrows-exchange"/></svg></div><div><b>YK Sync</b><span>Autoline → Shopify</span></div></div>
+  <div class="grp">Stock sync</div>
+  <button class="nav" data-tab="overview"><svg class="ic"><use href="#i-layout-dashboard"/></svg>Overview</button>
+  <button class="nav" data-tab="products"><svg class="ic"><use href="#i-package"/></svg>Products<span class="cnt" id="nProducts">–</span></button>
+  <button class="nav" data-tab="reports"><svg class="ic"><use href="#i-file-report"/></svg>Reports</button>
+  <div class="grp">Pickup</div>
+  <button class="nav" data-tab="pickup"><svg class="ic"><use href="#i-building-store"/></svg>Pickup checks<span class="cnt hide" id="nShort">0</span></button>
+  <button class="nav" data-tab="alerts"><svg class="ic"><use href="#i-bell"/></svg>Alerts sent</button>
+  <div class="grp">System</div>
+  <button class="nav" data-tab="logs"><svg class="ic"><use href="#i-list-details"/></svg>Logs</button>
+  <button class="nav" data-tab="settings"><svg class="ic"><use href="#i-settings"/></svg>Settings</button>
+  <div class="foot" id="sideStatus">
+    <div><span class="dot"></span>Loading…</div>
   </div>
-  <nav class="tabs" id="tabs">
-    <button class="tab on" data-tab="overview">Overview</button>
-    <button class="tab" data-tab="products">Products<span class="n" id="nProducts">0</span></button>
-    <button class="tab" data-tab="reports">Reports</button>
-    <button class="tab" data-tab="logs">Logs</button>
-    <button class="tab" data-tab="settings">Settings</button>
-  </nav>
-</header>
+</aside>
+<div class="scrim" id="scrim"></div>
 
-<main>
-  <div id="banners"></div>
+<div class="main">
+  <header class="top"><div class="top-in">
+    <button class="iconbtn menu" id="menuBtn" aria-label="Open menu"><svg class="ic"><use href="#i-menu-2"/></svg></button>
+    <div><h1 id="pgTitle">Overview</h1><div class="sub" id="pgSub"></div></div>
+    <div class="sp"></div>
+    <span class="pill" id="statePill"><span class="dot"></span>Loading…</span>
+    <button class="iconbtn" id="themeBtn" aria-label="Switch theme" title="Switch light / dark"><svg class="ic"><use href="#i-moon" id="themeIcon"/></svg></button>
+    <button class="btn primary" id="syncAll"><svg class="ic sm"><use href="#i-refresh"/></svg><span>Refresh all now</span></button>
+  </div></header>
 
-  <!-- OVERVIEW -->
-  <section id="tab-overview">
-    <div class="grid g5" id="kpis"></div>
-    <div class="grid g2" style="margin-top:14px">
-      <div class="card sec"><h3>Sync status</h3><div class="kv" id="kvStatus"></div></div>
-      <div class="card sec"><h3>Current settings</h3><div class="kv" id="kvConfig"></div>
-        <div style="margin-top:12px"><button class="linkbtn" data-goto="settings">Change settings →</button></div></div>
-    </div>
-    <div class="card sec" style="margin-top:14px">
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px"><h3 style="margin:0">Pickup order checks</h3><div class="sp"></div>
-        <input class="input" id="pkOrder" placeholder="Order no. e.g. 1001" style="width:170px"><button class="btn sm" id="pkBtn">Re-check</button></div>
-      <div class="small muted" id="pkInfo" style="margin-bottom:8px"></div>
-      <div class="tablewrap" style="max-height:320px"><table><thead><tr><th>Time</th><th>Order</th><th>Result</th><th>Lines (ordered / Autoline)</th></tr></thead><tbody id="pkRows"></tbody></table></div>
-    </div>
-    <div class="card sec" style="margin-top:14px"><h3>Last business report</h3><div id="reportChips" class="chips"></div>
-      <div class="small muted" style="margin-top:8px" id="reportAt"></div></div>
-  </section>
+  <div class="content">
+    <div id="banners"></div>
 
-  <!-- PRODUCTS -->
-  <section id="tab-products" class="hide">
-    <div class="toolbar">
-      <input class="input search" id="pSearch" placeholder="Search SKU, part number, product, note…">
-      <div class="chips" id="pFilters"></div>
-    </div>
-    <div class="card">
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>Shopify SKU</th><th>Autoline part</th><th>Product</th><th>Price1</th><th>Stock (Shopify → Autoline)</th><th>Result</th><th>Changes / note</th><th>Last sync</th><th></th></tr></thead>
-          <tbody id="parts"></tbody>
-        </table>
+    <!-- OVERVIEW -->
+    <section class="page" id="tab-overview">
+      <div class="grid g5" id="kpis">
+        <div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div><div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div><div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div><div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div><div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div>
       </div>
-      <div class="more small muted" id="pMore"></div>
-    </div>
-  </section>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="card sec"><div class="card-h"><svg class="ic"><use href="#i-clock"/></svg>Sync status</div><div class="kv" id="kvStatus"></div></div>
+        <div class="card sec"><div class="card-h"><svg class="ic"><use href="#i-settings"/></svg>Current settings</div><div class="kv" id="kvConfig"></div>
+          <div style="margin-top:14px"><button class="linkbtn" data-goto="settings">Change settings →</button></div></div>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="card sec"><div class="card-h"><svg class="ic"><use href="#i-file-report"/></svg>Last business report</div><div id="reportChips" class="chips"></div>
+          <div class="small muted" style="margin-top:10px" id="reportAt"></div></div>
+        <div class="card sec"><div class="card-h"><svg class="ic"><use href="#i-building-store"/></svg>Pickup today</div><div id="pkMini"></div>
+          <div style="margin-top:12px"><button class="linkbtn" data-goto="pickup">Open pickup checks →</button></div></div>
+      </div>
+    </section>
 
-  <!-- REPORTS -->
-  <section id="tab-reports" class="hide">
-    <div class="card sec">
-      <h3>Daily reports</h3>
-      <p class="small muted" style="margin-top:0">Written by the nightly reconciliation. Lists UNMAPPED, NOT_FOUND, BLOCKED, DUPLICATE_SKU, PRICE_SWING, SUPERSEDED and NOT_IN_SHOPIFY parts.</p>
-      <div id="reportList"></div>
-    </div>
-  </section>
+    <!-- PRODUCTS -->
+    <section class="page" id="tab-products">
+      <div class="toolbar">
+        <div class="searchbox"><svg class="ic sm"><use href="#i-search"/></svg><input class="input" id="pSearch" placeholder="Search SKU, part number, product, note"></div>
+        <div class="chips" id="pFilters"></div>
+      </div>
+      <div class="card">
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Shopify SKU</th><th>Autoline part</th><th>Product</th><th>Price1</th><th>Stock (Shopify → Autoline)</th><th>Result</th><th>Changes / note</th><th>Last sync</th><th></th></tr></thead>
+            <tbody id="parts"></tbody>
+          </table>
+        </div>
+        <div class="more small muted" id="pMore"></div>
+      </div>
+    </section>
 
-  <!-- LOGS -->
-  <section id="tab-logs" class="hide">
-    <div class="toolbar">
-      <select id="logDate"><option value="">Live (recent)</option></select>
-      <select id="logLevel"><option value="">All levels</option><option>change</option><option>skip</option><option>warn</option><option>error</option><option>alert</option><option>info</option></select>
-      <input class="input search" id="logSearch" placeholder="Search SKU / event">
-    </div>
-    <div class="card"><div class="tablewrap"><table>
-      <thead><tr><th style="width:170px">Time</th><th style="width:80px">Level</th><th style="width:230px">Event</th><th>Details</th></tr></thead>
-      <tbody id="logs"></tbody>
-    </table></div></div>
-  </section>
+    <!-- REPORTS -->
+    <section class="page" id="tab-reports">
+      <div class="card sec" style="margin-bottom:14px"><div class="card-h"><svg class="ic"><use href="#i-info-circle"/></svg>Last business report</div><div id="reportChips2" class="chips"></div><div class="small muted" style="margin-top:10px" id="reportAt2"></div></div>
+      <div class="card">
+        <div class="sec" style="padding-bottom:6px"><div class="card-h" style="margin-bottom:4px"><svg class="ic"><use href="#i-download"/></svg>Report files</div>
+        <p class="small muted" style="margin:0 0 6px">Written by every full run (nightly check or "Refresh all now"). Lists not in C1, unmapped, blocked, duplicate SKU, price swing and similar issues.</p></div>
+        <div id="reportList"></div>
+      </div>
+    </section>
 
-  <!-- SETTINGS -->
-  <section id="tab-settings" class="hide">
-    <div class="err" id="setErr"></div>
-    <p class="small muted" style="margin-top:0">Changes apply immediately, no restart needed. Values changed here are saved in <span class="mono">settings.json</span> and win over <span class="mono">.env</span>. Passwords, tokens, URLs and the port stay in <span class="mono">.env</span> only.</p>
-    <div id="settings"></div>
-  </section>
-</main>
+    <!-- PICKUP -->
+    <section class="page" id="tab-pickup">
+      <div class="grid g3" id="pkKpis">
+        <div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div><div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div><div class="card kpi"><span class="sk w60"></span><span class="sk h28"></span></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="sec" style="padding-bottom:12px">
+          <div class="toolbar" style="margin:0">
+            <div class="chips" id="pkFilters"></div>
+            <div class="sp"></div>
+            <input class="input" id="pkOrder" placeholder="Order no. e.g. YKEHAT1040" style="width:220px">
+            <button class="btn" id="pkBtn"><svg class="ic sm"><use href="#i-refresh"/></svg><span>Re-check</span></button>
+          </div>
+          <div class="small muted" id="pkInfo" style="margin-top:10px"></div>
+        </div>
+        <div class="tablewrap" style="border-top:1px solid var(--line);border-radius:0 0 var(--r-lg) var(--r-lg)"><table>
+          <thead><tr><th>Order</th><th>Result</th><th>Product · outlet</th><th>Qty (ordered / Autoline)</th><th>Checked</th></tr></thead>
+          <tbody id="pkRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- ALERTS -->
+    <section class="page" id="tab-alerts">
+      <div class="toolbar">
+        <select id="alDate"><option value="">Last 7 days</option></select>
+        <div class="sp"></div>
+        <span class="small muted" id="alInfo"></span>
+      </div>
+      <div class="card" id="alerts"></div>
+    </section>
+
+    <!-- LOGS -->
+    <section class="page" id="tab-logs">
+      <div class="toolbar">
+        <select id="logDate"><option value="">Live (recent)</option></select>
+        <select id="logLevel"><option value="">All levels</option><option>change</option><option>skip</option><option>warn</option><option>error</option><option>alert</option><option>info</option></select>
+        <div class="searchbox"><svg class="ic sm"><use href="#i-search"/></svg><input class="input" id="logSearch" placeholder="Search SKU or event"></div>
+      </div>
+      <div class="card"><div class="tablewrap"><table>
+        <thead><tr><th style="width:170px">Time</th><th style="width:80px">Level</th><th style="width:230px">Event</th><th>Details</th></tr></thead>
+        <tbody id="logs"></tbody>
+      </table></div></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="page" id="tab-settings">
+      <div class="err" id="setErr"></div>
+      <p class="small muted" style="margin-top:0">Changes apply immediately, no restart needed. Values changed here are saved in <span class="mono">settings.json</span> and win over <span class="mono">.env</span>. Passwords, tokens, URLs and the port stay in <span class="mono">.env</span> only.</p>
+      <div id="settings"></div>
+    </section>
+  </div>
+</div>
+</div>
 
 <div class="savebar" id="savebar"><div class="in">
   <span id="saveTxt">Unsaved changes</span><div class="sp"></div>
-  <button class="btn" id="discard">Discard</button>
+  <button class="btn ghost" id="discard">Discard</button>
   <button class="btn primary" id="save">Save changes</button>
 </div></div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status"></div>
 
 <script>
 const token = new URLSearchParams(location.search).get('token') || '';
 const H = { 'x-admin-token': token, 'Content-Type': 'application/json' };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ic = (n, cls) => '<svg class="ic ' + (cls || 'sm') + '"><use href="#i-' + n + '"/></svg>';
 const t = (s) => (s ? new Date(s).toLocaleString() : '—');
+const tShort = (s) => (s ? new Date(s).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
+const ord = (s) => String(s || '').replace(/^#+/, '#');
+const outlet = (s) => { const x = String(s || ''); const i = x.lastIndexOf(' - '); return (i > 0 ? x.slice(i + 3) : x).replace(/\s*Showroom$/i, ''); };
+const today = (s) => s && new Date(s).toDateString() === new Date().toDateString();
+const skRows = (cols, n) => Array.from({ length: n || 6 }, () => '<tr>' + Array.from({ length: cols }, (_, i) => '<td><span class="sk ' + ['w80', 'w60', 'w40', 'w30'][i % 4] + '"></span></td>').join('') + '</tr>').join('');
+const emptyRow = (cols, icon, msg) => '<tr><td colspan="' + cols + '" class="empty">' + ic(icon, '') + esc(msg) + '</td></tr>';
 async function api(p, opt = {}) {
-  const r = await fetch(p, { headers: H, ...opt });
+  let r;
+  try { r = await fetch(p, { headers: H, ...opt }); } catch (e) { return { error: 'Cannot reach the app. Is it running?' }; }
   let j = {};
   try { j = await r.json(); } catch {}
   if (!r.ok && !j.error) j.error = 'HTTP ' + r.status;
   return j;
 }
-function toast(msg) { const el = $('toast'); el.textContent = msg; el.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => (el.style.display = 'none'), 3000); }
+function toast(msg) { const el = $('toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 3200); }
+function setHtml(id, html) { const el = $(id); if (el && el.innerHTML !== html) el.innerHTML = html; }
 
-// ---------- tabs ----------
+// ---------- theme ----------
+function applyThemeIcon() { $('themeIcon').setAttribute('href', document.documentElement.getAttribute('data-theme') === 'dark' ? '#i-sun' : '#i-moon'); }
+$('themeBtn').onclick = () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  const root = document.documentElement;
+  root.classList.add('theme-anim');
+  root.setAttribute('data-theme', next);
+  clearTimeout(applyThemeIcon.t);
+  applyThemeIcon.t = setTimeout(() => root.classList.remove('theme-anim'), 300);
+  try { localStorage.setItem('yk-theme', next); } catch (e) {}
+  applyThemeIcon();
+};
+applyThemeIcon();
+
+// ---------- navigation ----------
+const PAGES = {
+  overview: ['Overview', 'Stock and price sync from Autoline'],
+  products: ['Products', 'Every Shopify product with the sync tag'],
+  reports: ['Reports', 'Daily business reports and CSV downloads'],
+  pickup: ['Pickup checks', 'Store pickup orders vs outlet stock in Autoline'],
+  alerts: ['Alerts sent', 'Email alerts sent by the app'],
+  logs: ['Logs', 'Everything the app did, newest first'],
+  settings: ['Settings', 'Change how the sync behaves'],
+};
 let tab = (location.hash || '#overview').slice(1);
 function showTab(name) {
+  if (!PAGES[name]) name = 'overview';
+  const changed = tab !== name || !document.querySelector('.page.on');
   tab = name;
-  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
-  document.querySelectorAll('main > section').forEach((s) => s.classList.toggle('hide', s.id !== 'tab-' + name));
+  document.querySelectorAll('.nav').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
+  if (changed) document.querySelectorAll('.page').forEach((s) => s.classList.toggle('on', s.id === 'tab-' + name));
+  $('pgTitle').textContent = PAGES[name][0];
+  $('pgSub').textContent = PAGES[name][1];
+  document.body.classList.remove('nav-open');
   history.replaceState(null, '', location.pathname + location.search + '#' + name);
-  if (name === 'logs') loadLogs();
+  if (changed) window.scrollTo({ top: 0 });
+  if (name === 'logs') loadLogs(true);
+  if (name === 'alerts') loadAlerts(true);
   if (name === 'settings') loadSettings();
 }
-document.querySelectorAll('.tab').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+document.querySelectorAll('.nav').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) showTab(g.dataset.goto); });
+$('menuBtn').onclick = () => document.body.classList.add('nav-open');
+$('scrim').onclick = () => document.body.classList.remove('nav-open');
 
 // ---------- status ----------
 let S = null;
 let pFilter = 'all';
 let pLimit = 200;
+let pkFilter = 'all';
 async function refresh() {
   const s = await api('/api/status');
-  if (s.error) { $('statePill').className = 'pill dot bad'; $('statePill').textContent = s.error; return; }
+  const pill = $('statePill');
+  if (s.error) {
+    pill.className = 'pill bad'; pill.innerHTML = '<span class="dot"></span>' + esc(s.error);
+    setHtml('sideStatus', '<div><span class="dot bad"></span>' + esc(s.error) + '</div>');
+    return;
+  }
   S = s;
   const c = s.config;
-  $('store').textContent = c.store;
-  const pill = $('statePill');
-  if (s.running) { pill.className = 'pill dot info'; pill.textContent = 'Syncing (' + s.running.mode + ')…'; }
-  else if (s.autoline.downSince) { pill.className = 'pill dot bad'; pill.textContent = 'Autoline down'; }
-  else if (c.dryRun) { pill.className = 'pill dot warn'; pill.textContent = 'Dry run' + (c.autoSync ? '' : ' · auto sync off'); }
-  else if (!c.autoSync) { pill.className = 'pill dot info'; pill.textContent = 'Live · manual only'; }
-  else { pill.className = 'pill dot ok'; pill.textContent = 'Live'; }
-  $('syncAll').disabled = !!s.running;
+  if (s.running) { pill.className = 'pill info'; pill.innerHTML = '<span class="dot pulse"></span>Syncing (' + esc(s.running.mode) + ')'; }
+  else if (s.autoline.downSince) { pill.className = 'pill bad'; pill.innerHTML = '<span class="dot"></span>Autoline down'; }
+  else if (c.dryRun) { pill.className = 'pill warn'; pill.innerHTML = '<span class="dot"></span>Test mode' + (c.autoSync ? '' : ' · manual'); }
+  else if (!c.autoSync) { pill.className = 'pill info'; pill.innerHTML = '<span class="dot"></span>Live · manual only'; }
+  else { pill.className = 'pill ok'; pill.innerHTML = '<span class="dot"></span>Live · automatic'; }
+  const sa = $('syncAll');
+  sa.disabled = !!s.running;
+  sa.querySelector('.ic').classList.toggle('spin', !!s.running);
+  sa.querySelector('span').textContent = s.running ? 'Syncing…' : 'Refresh all now';
+
+  setHtml('sideStatus', [
+    s.autoline.downSince ? '<div><span class="dot bad"></span>Autoline down</div>' : '<div><span class="dot ok"></span>Autoline connected</div>',
+    c.autoSync ? '<div><span class="dot ok"></span>Auto sync on · ' + esc(c.intervalMinutes) + ' min</div>' : '<div><span class="dot warn"></span>Auto sync off</div>',
+    c.dryRun ? '<div><span class="dot warn"></span>Test mode (no writes)</div>' : '<div><span class="dot ok"></span>Live (writes to Shopify)</div>',
+    '<div class="muted" style="font-size:11.5px;word-break:break-all">' + esc(c.store) + '</div>',
+  ].join(''));
 
   const b = [];
-  if (c.dryRun) b.push('<div class="banner warn">Dry run is ON: the app only shows what would change. Nothing is written to Shopify. <button class="linkbtn" data-goto="settings">Turn off in Settings</button></div>');
-  if (!c.autoSync) b.push('<div class="banner warn">Automatic sync is OFF: nothing runs on its own. Only products you Refresh are synced. <button class="linkbtn" data-goto="settings">Change</button></div>');
-  if (s.autoline.downSince) b.push('<div class="banner bad">Autoline unreachable since ' + t(s.autoline.downSince) + '. Shopify values are kept unchanged.</div>');
-  if (s.listError) b.push('<div class="banner bad">' + esc(s.listError) + '</div>');
-  if (s.lastRun && s.lastRun.errors) b.push('<div class="banner bad">Last run had ' + s.lastRun.errors + ' error(s). See Logs.</div>');
-  if (s.lastRun && s.lastRun.fatal) b.push('<div class="banner bad">' + esc(s.lastRun.fatal) + '</div>');
-  $('banners').innerHTML = b.join('');
+  if (c.dryRun) b.push('<div class="banner warn">' + ic('alert-triangle') + '<span>Test mode (dry run) is ON: the app only shows what would change. Nothing is written to Shopify.</span> <button class="linkbtn" data-goto="settings">Turn off</button></div>');
+  if (!c.autoSync) b.push('<div class="banner warn">' + ic('player-pause') + '<span>Automatic sync is OFF: nothing runs on its own. Only products you refresh are synced.</span> <button class="linkbtn" data-goto="settings">Change</button></div>');
+  if (s.autoline.downSince) b.push('<div class="banner bad">' + ic('circle-x') + '<span>Autoline unreachable since ' + t(s.autoline.downSince) + '. Shopify values are kept unchanged.</span></div>');
+  if (s.listError) b.push('<div class="banner bad">' + ic('circle-x') + '<span>' + esc(s.listError) + '</span></div>');
+  if (s.lastRun && s.lastRun.errors) b.push('<div class="banner bad">' + ic('circle-x') + '<span>Last run had ' + s.lastRun.errors + ' error(s).</span> <button class="linkbtn" data-goto="logs">See logs</button></div>');
+  if (s.lastRun && s.lastRun.fatal) b.push('<div class="banner bad">' + ic('circle-x') + '<span>' + esc(s.lastRun.fatal) + '</span></div>');
+  setHtml('banners', b.join(''));
 
   const lr = s.lastRun || {};
   const parts = s.parts || [];
   const kp = [
-    ['Products', parts.length, c.partsSource === 'tag' ? 'tag ' + c.syncTag : 'parts-list.csv'],
-    ['Changed', lr.changed ?? '—', 'last run'],
-    ['Unchanged', lr.unchanged ?? '—', 'last run'],
-    ['Skipped', lr.skipped ?? '—', 'see Products / Reports'],
-    ['Errors', lr.errors ?? '—', lr.durationMs ? 'run took ' + Math.round(lr.durationMs / 1000) + ' s' : ''],
+    ['Products', parts.length, c.partsSource === 'tag' ? 'tag ' + c.syncTag : 'parts-list.csv', 'package', 't-info'],
+    ['Changed', lr.changed ?? '—', 'last run', 'refresh', 't-ok'],
+    ['Unchanged', lr.unchanged ?? '—', 'last run', 'circle-check', ''],
+    ['Skipped', lr.skipped ?? '—', 'see Products / Reports', 'alert-triangle', 't-warn'],
+    ['Errors', lr.errors ?? '—', lr.durationMs ? 'run took ' + Math.round(lr.durationMs / 1000) + ' s' : '', 'circle-x', lr.errors ? 't-bad' : ''],
   ];
-  $('kpis').innerHTML = kp.map(([k, v, sub]) => '<div class="card kpi"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(sub) + '</div></div>').join('');
+  setHtml('kpis', kp.map(([k, v, sub, icon, tone]) => '<div class="card kpi ' + tone + '"><div class="k"><span class="ib">' + ic(icon) + '</span>' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(sub) + '</div></div>').join(''));
 
   const rc = s.lastReconciliation || {};
-  $('kvStatus').innerHTML = [
+  setHtml('kvStatus', [
     ['Last run', t(lr.finishedAt)],
-    ['Next scheduled run', c.autoSync ? t(s.nextScheduledAt) : 'Automatic sync OFF (manual only)'],
+    ['Next scheduled run', c.autoSync ? t(s.nextScheduledAt) : 'Automatic sync off (manual only)'],
     ['Sync interval', c.intervalMinutes + ' minutes'],
     ['Nightly reconciliation', c.reconciliationTime + ' (' + c.timezone + '), last: ' + t(rc.finishedAt)],
     ['Autoline last OK', t(s.autoline.lastSuccessAt)],
     ['Drafted by app', Object.keys(s.draftedByApp || {}).length],
-  ].map(([k, v]) => '<div>' + esc(k) + '</div><div>' + esc(v) + '</div>').join('');
+  ].map(([k, v]) => '<div>' + esc(k) + '</div><div>' + esc(v) + '</div>').join(''));
 
-  const locs = (c.locationStockMap || []).map((m) => m.rooftopId + (c.outletRooftops.includes(m.rooftopId) ? ' (outlet)' : '')).join(', ') || 'single location';
-  $('kvConfig').innerHTML = [
-    ['Mode', (c.dryRun ? 'Dry run' : 'Live (writes to Shopify)') + (c.autoSync ? ', automatic' : ', manual only')],
+  const locs = (c.locationStockMap || []).map((m) => m.rooftopId + ((c.outletRooftops || []).includes(m.rooftopId) ? ' (outlet)' : '')).join(', ') || 'single location';
+  setHtml('kvConfig', [
+    ['Mode', (c.dryRun ? 'Test mode (no writes)' : 'Live (writes to Shopify)') + (c.autoSync ? ', automatic' : ', manual only')],
     ['Main rooftop', c.rooftopId],
     ['Stock locations', locs],
     ['Stock quantity', c.stockSource],
@@ -282,29 +483,81 @@ async function refresh() {
     ['Parts list', c.partsSource === 'tag' ? 'Shopify tag "' + c.syncTag + '"' : 'parts-list.csv'],
     ['blockSale = Y', c.blockSaleAction === 'draft' ? 'Draft product' : 'Stock 0 + tag'],
     ['Delivery-only outlets', c.deliveryOnlyAction === 'deactivate' ? 'Deactivate inventory' : 'Stock 0'],
-    ['Description sync', c.descriptionSync ? 'ON' : 'OFF'],
+    ['Description sync', c.descriptionSync ? 'On' : 'Off'],
     ['Changed in dashboard', (c.overrides || []).join(', ') || 'none'],
-  ].map(([k, v]) => '<div>' + esc(k) + '</div><div>' + esc(v) + '</div>').join('');
+  ].map(([k, v]) => '<div>' + esc(k) + '</div><div>' + esc(v) + '</div>').join(''));
 
   const rep = s.lastReport;
-  $('reportChips').innerHTML = rep ? (Object.entries(rep.counts).map(([k, n]) => '<span class="chip">' + esc(k) + ' · ' + n + '</span>').join('') || '<span class="chip">Clean, nothing to report</span>') : '<span class="muted small">No report yet.</span>';
-  $('reportAt').textContent = rep ? 'From ' + rep.mode + ' run at ' + t(rep.at) : '';
+  const chips = rep ? (Object.entries(rep.counts).map(([k, n]) => '<span class="chip">' + esc(k) + ' <span class="n">' + n + '</span></span>').join('') || '<span class="chip">' + ic('circle-check') + 'Clean, nothing to report</span>') : '<span class="muted small">No report yet.</span>';
+  const repAt = rep ? 'From ' + rep.mode + ' run at ' + t(rep.at) : '';
+  setHtml('reportChips', chips); $('reportAt').textContent = repAt;
+  setHtml('reportChips2', chips); $('reportAt2').textContent = repAt;
 
-  $('reportList').innerHTML = (s.reports || []).length
-    ? '<table><thead><tr><th>File</th><th></th></tr></thead><tbody>' + s.reports.map((r) => '<tr><td class="mono">' + esc(r) + '</td><td style="text-align:right"><a class="btn sm" href="/api/report?name=' + encodeURIComponent(r) + '&token=' + encodeURIComponent(token) + '">Download CSV</a></td></tr>').join('') + '</tbody></table>'
-    : '<div class="empty">No report yet. Reports are written by every full run: the nightly check or \u201cRefresh all now\u201d.</div>';
+  setHtml('reportList', (s.reports || []).length
+    ? '<table><thead><tr><th>File</th><th></th></tr></thead><tbody>' + s.reports.map((r) => '<tr><td class="mono">' + ic('file-report') + ' ' + esc(r) + '</td><td style="text-align:right"><a class="btn sm" href="/api/report?name=' + encodeURIComponent(r) + '&token=' + encodeURIComponent(token) + '">' + ic('download') + 'Download CSV</a></td></tr>').join('') + '</tbody></table>'
+    : '<div class="empty">' + ic('file-report', '') + 'No report yet. Reports are written by every full run: the nightly check or "Refresh all now".</div>');
 
-  $('pkInfo').innerHTML = !c.pickupRecheck ? 'Pickup re-check is OFF (Settings).' : !c.webhookSecretSet ? 'Webhook secret not set: automatic checks on new orders are off. You can still re-check an order by number.' : 'New pickup orders are checked automatically (orders/create webhook).';
-  const pk = s.pickupChecks || [];
-  $('pkRows').innerHTML = pk.map((r) => {
-    const st = !r.pickup ? '<span class="badge b-unchanged">not pickup</span>' : r.short ? '<span class="badge b-error">SHORT</span>' : r.problems.length ? '<span class="badge b-skipped">check</span>' : '<span class="badge b-changed">OK</span>';
-    const lines = (r.lines || []).map((l) => esc(l.sku) + ' @ ' + esc(l.location) + ': ' + l.ordered + ' / ' + (l.autolineQty ?? '?') + (l.note ? ' (' + esc(l.note) + ')' : '')).join('<br>');
-    return '<tr><td class="small">' + t(r.at) + '</td><td class="mono">' + esc(r.order) + '<div class="small muted">' + esc(r.trigger) + '</div></td><td>' + st + '</td><td class="small">' + (lines || '—') + '</td></tr>';
-  }).join('') || '<tr><td colspan="4" class="empty">No pickup orders checked yet.</td></tr>';
-
+  renderPickup();
   $('nProducts').textContent = parts.length;
   renderParts();
 }
+
+// ---------- pickup ----------
+function pkStatus(r) { return !r.pickup ? 'notpickup' : r.short ? 'short' : r.problems && r.problems.length ? 'check' : 'ok'; }
+function renderPickup() {
+  if (!S) return;
+  const c = S.config;
+  const pk = S.pickupChecks || [];
+  const titles = {};
+  (S.parts || []).forEach((p) => { if (p.sku) titles[p.sku] = p.title; });
+  const td = pk.filter((r) => today(r.at) && r.pickup);
+  const nShort = td.filter((r) => r.short).length;
+  const nOk = td.filter((r) => pkStatus(r) === 'ok').length;
+  const ns = $('nShort');
+  ns.textContent = nShort; ns.classList.toggle('hide', !nShort); ns.classList.toggle('bad', nShort > 0);
+
+  setHtml('pkKpis', [
+    ['Checked today', td.length, 'pickup orders', 'building-store', 't-info'],
+    ['Short', nShort, 'outlet stock too low', 'alert-triangle', nShort ? 't-bad' : ''],
+    ['OK', nOk, 'stock available', 'circle-check', 't-ok'],
+  ].map(([k, v, sub, icon, tone]) => '<div class="card kpi ' + tone + '"><div class="k"><span class="ib">' + ic(icon) + '</span>' + esc(k) + '</div><div class="v">' + v + '</div><div class="s">' + esc(sub) + '</div></div>').join(''));
+  setHtml('pkMini', '<div class="chips"><span class="chip">Checked <span class="n">' + td.length + '</span></span><span class="chip" style="color:var(--bad)">Short <span class="n">' + nShort + '</span></span><span class="chip" style="color:var(--ok)">OK <span class="n">' + nOk + '</span></span></div>' +
+    '<div class="small muted" style="margin-top:10px">' + (pk[0] ? 'Last check: ' + esc(ord(pk[0].order)) + ' at ' + tShort(pk[0].at) : 'No pickup orders checked yet.') + '</div>');
+
+  $('pkInfo').innerHTML = !c.pickupRecheck ? ic('info-circle') + ' Pickup re-check is OFF (Settings).'
+    : !c.webhookSecretSet ? ic('info-circle') + ' Automatic checks start once the webhook is registered. Until then, re-check an order by its number.'
+    : ic('circle-check') + ' New pickup orders are checked automatically. Use Re-check to check one again.';
+
+  const counts = { all: pk.length, short: 0, ok: 0, check: 0 };
+  pk.forEach((r) => { const k = pkStatus(r); if (counts[k] !== undefined) counts[k]++; });
+  setHtml('pkFilters', [['all', 'All'], ['short', 'Short'], ['ok', 'OK'], ['check', 'Needs check']].map(([f, l]) => '<button class="chip' + (pkFilter === f ? ' on' : '') + '" data-pf="' + f + '">' + l + ' <span class="n">' + counts[f] + '</span></button>').join(''));
+
+  const rows = pk.filter((r) => pkFilter === 'all' || pkStatus(r) === pkFilter);
+  setHtml('pkRows', rows.map((r) => {
+    const st = pkStatus(r);
+    const badge = st === 'notpickup' ? '<span class="badge b-neutral">' + ic('truck') + 'Not pickup</span>' : st === 'short' ? '<span class="badge b-bad"><span class="dot"></span>Short</span>' : st === 'check' ? '<span class="badge b-warn"><span class="dot"></span>Needs check</span>' : '<span class="badge b-ok"><span class="dot"></span>OK</span>';
+    const lines = (r.lines || []);
+    const prod = lines.map((l) => '<div style="margin-bottom:4px"><span class="strong">' + esc(titles[l.sku] || l.sku) + '</span><div class="small muted">' + (titles[l.sku] ? esc(l.sku) + ' · ' : '') + esc(outlet(l.location)) + (l.note ? ' · ' + esc(l.note) : '') + '</div></div>').join('') || (r.problems && r.problems.length ? '<span class="small muted">' + esc(r.problems.join('; ')) + '</span>' : '<span class="muted">—</span>');
+    const qty = lines.map((l) => '<div style="margin-bottom:4px;line-height:2.6"><span class="qty' + (l.status === 'SHORT' ? ' bad' : '') + '">' + esc(l.ordered) + ' / ' + esc(l.autolineQty ?? '?') + '</span></div>').join('') || '—';
+    const how = r.trigger === 'webhook' ? '<span class="badge b-info">Automatic</span>' : '<span class="badge b-neutral">Manual</span>';
+    const mail = st === 'short' || st === 'check' ? (c.alertEmail ? ' <span class="badge b-warn">' + ic('mail') + 'Email sent</span>' : '') : '';
+    return '<tr><td><div class="strong">' + esc(ord(r.order)) + '</div></td><td>' + badge + '</td><td>' + prod + '</td><td>' + qty + '</td><td class="small"><div>' + tShort(r.at) + '</div><div style="margin-top:4px">' + how + mail + '</div></td></tr>';
+  }).join('') || emptyRow(5, 'building-store', pk.length ? 'No orders match this filter.' : 'No pickup orders checked yet.'));
+}
+$('pkFilters').onclick = (e) => { const b = e.target.closest('[data-pf]'); if (b) { pkFilter = b.dataset.pf; renderPickup(); } };
+async function doRecheck() {
+  const order = $('pkOrder').value.trim().replace(/^#+/, '');
+  if (!order) { $('pkOrder').focus(); toast('Enter an order number first'); return; }
+  const b = $('pkBtn');
+  b.disabled = true; b.querySelector('.ic').classList.add('spin');
+  const r = await api('/api/pickup-recheck', { method: 'POST', body: JSON.stringify({ order }) });
+  b.disabled = false; b.querySelector('.ic').classList.remove('spin');
+  toast(r.error ? r.error : (ord(r.order) + ': ' + (r.skipped ? r.reason : !r.pickup ? 'not a pickup order' : r.short ? 'short, order tagged and alert sent' : (r.problems && r.problems.length) ? 'could not check fully' : 'OK, stock available')));
+  if (!r.error) { $('pkOrder').value = ''; pkFilter = 'all'; }
+  refresh();
+}
+$('pkBtn').onclick = doRecheck;
+$('pkOrder').onkeydown = (e) => { if (e.key === 'Enter') doRecheck(); };
 
 // ---------- products ----------
 function rowMatches(p, q) {
@@ -317,71 +570,96 @@ function renderParts() {
   const parts = S.parts || [];
   const counts = { all: parts.length, changed: 0, unchanged: 0, skipped: 0, error: 0 };
   parts.forEach((p) => { if (counts[p.result] !== undefined) counts[p.result]++; });
-  $('pFilters').innerHTML = ['all', 'changed', 'unchanged', 'skipped', 'error'].map((f) => '<button class="chip' + (pFilter === f ? ' on' : '') + '" data-f="' + f + '">' + f[0].toUpperCase() + f.slice(1) + ' · ' + counts[f] + '</button>').join('');
+  setHtml('pFilters', ['all', 'changed', 'unchanged', 'skipped', 'error'].map((f) => '<button class="chip' + (pFilter === f ? ' on' : '') + '" data-f="' + f + '">' + f[0].toUpperCase() + f.slice(1) + ' <span class="n">' + counts[f] + '</span></button>').join(''));
   const q = $('pSearch').value.trim().toLowerCase();
   const rows = parts.filter((p) => rowMatches(p, q));
   const shown = rows.slice(0, pLimit);
-  $('parts').innerHTML = shown.map((p) => {
+  setHtml('parts', shown.map((p) => {
     const a = p.autoline || {};
-    const stocks = (p.stocks || []).map((x) => '<div class="loc"><span>' + esc(x.location) + '</span><b>' + (x.shopify ?? '—') + ' → ' + (x.target ?? '—') + '</b></div>' + (x.note ? '<div class="small muted">' + esc(x.note) + '</div>' : '')).join('');
+    const stocks = (p.stocks || []).map((x) => '<div class="loc"><span>' + esc(outlet(x.location)) + '</span><b>' + (x.shopify ?? '—') + ' → ' + (x.target ?? '—') + '</b></div>' + (x.note ? '<div class="small muted">' + esc(x.note) + '</div>' : '')).join('');
     return '<tr>' +
       '<td class="mono">' + esc(p.sku) + '</td>' +
       '<td class="mono">' + esc(p.partNumber || '—') + (p.keyVia ? '<div class="small muted">via ' + esc(p.keyVia) + '</div>' : '') + '</td>' +
-      '<td>' + esc(p.title || '') + (p.vendor ? '<div class="small muted">' + esc(p.vendor) + '</div>' : '') + (p.deliveryOnly ? '<div><span class="badge b-skipped">Delivery only</span></div>' : '') + '</td>' +
-      '<td>' + (p.autoline ? esc(a.price1) + (a.specialPrice > 0 ? '<div class="small muted">special ' + esc(a.specialPrice) + '</div>' : '') + (a.blockSale === 'Y' ? '<div><span class="badge b-error">blockSale</span></div>' : '') : '—') + '</td>' +
-      '<td style="min-width:240px">' + (stocks || '—') + '</td>' +
+      '<td><div class="strong">' + esc(p.title || '') + '</div>' + (p.vendor ? '<div class="small muted">' + esc(p.vendor) + '</div>' : '') + (p.deliveryOnly ? '<div style="margin-top:4px"><span class="badge b-warn">' + ic('truck') + 'Delivery only</span></div>' : '') + '</td>' +
+      '<td>' + (p.autoline ? '<span class="qty">' + esc(a.price1) + '</span>' + (a.specialPrice > 0 ? '<div class="small muted">special ' + esc(a.specialPrice) + '</div>' : '') + (a.blockSale === 'Y' ? '<div><span class="badge b-bad">blockSale</span></div>' : '') : '—') + '</td>' +
+      '<td style="min-width:220px">' + (stocks || '—') + '</td>' +
       '<td>' + (p.result ? '<span class="badge b-' + esc(p.result) + '">' + esc(p.result) + '</span>' : '<span class="muted small">pending</span>') + '</td>' +
-      '<td class="small" style="max-width:320px">' + esc((p.changes || []).join(', ')) + (p.note ? '<div class="muted">' + esc(p.note) + '</div>' : '') + '</td>' +
-      '<td class="small muted">' + t(p.at) + '</td>' +
-      '<td><button class="btn sm" data-sku="' + esc(p.sku) + '"' + (S.running ? ' disabled' : '') + '>Refresh</button></td>' +
+      '<td class="small" style="max-width:300px">' + esc((p.changes || []).join(', ')) + (p.note ? '<div class="muted">' + esc(p.note) + '</div>' : '') + '</td>' +
+      '<td class="small muted" style="white-space:nowrap">' + tShort(p.at) + '</td>' +
+      '<td><button class="btn sm" data-sku="' + esc(p.sku) + '"' + (S.running ? ' disabled' : '') + '>' + ic('refresh') + 'Refresh</button></td>' +
       '</tr>';
-  }).join('') || '<tr><td colspan="9" class="empty">No products match.</td></tr>';
-  $('pMore').innerHTML = rows.length > shown.length ? 'Showing ' + shown.length + ' of ' + rows.length + ' <button class="linkbtn" id="moreBtn">Show more</button>' : rows.length + ' product(s)';
+  }).join('') || emptyRow(9, 'search', 'No products match.'));
+  setHtml('pMore', rows.length > shown.length ? 'Showing ' + shown.length + ' of ' + rows.length + ' · <button class="linkbtn" id="moreBtn">Show more</button>' : rows.length + ' product(s)');
 }
 $('pSearch').oninput = () => { pLimit = 200; renderParts(); };
 $('pFilters').onclick = (e) => { const b = e.target.closest('[data-f]'); if (b) { pFilter = b.dataset.f; pLimit = 200; renderParts(); } };
 $('pMore').onclick = (e) => { if (e.target.id === 'moreBtn') { pLimit += 200; renderParts(); } };
 $('parts').onclick = async (e) => {
   const b = e.target.closest('[data-sku]'); if (!b) return;
-  b.disabled = true;
+  b.disabled = true; b.querySelector('.ic').classList.add('spin');
   const r = await api('/api/sync', { method: 'POST', body: JSON.stringify({ sku: b.dataset.sku }) });
   toast(r.error ? r.error : 'Refreshing ' + b.dataset.sku + '…');
   setTimeout(tick, 1500);
 };
 $('syncAll').onclick = async () => {
+  if (!confirm('Refresh all products now?\n\nThis reads every product from Autoline' + (S && S.config && !S.config.dryRun ? ' and WRITES price and stock changes to Shopify.' : ' (test mode: nothing is written).'))) return;
+  $('syncAll').disabled = true;
   const r = await api('/api/sync', { method: 'POST', body: '{}' });
   toast(r.error ? r.error : 'Full sync started');
   setTimeout(tick, 1000);
 };
 
-$('pkBtn').onclick = async () => {
-  const order = $('pkOrder').value.trim(); if (!order) return;
-  $('pkBtn').disabled = true;
-  const r = await api('/api/pickup-recheck', { method: 'POST', body: JSON.stringify({ order }) });
-  $('pkBtn').disabled = false;
-  toast(r.error ? r.error : (r.order + ': ' + (!r.pickup ? 'not a pickup order' : r.short ? 'SHORT, order tagged' : 'OK')));
-  refresh();
-};
-
 // ---------- logs ----------
 let logDatesLoaded = false;
-async function loadLogs() {
+let alDatesLoaded = false;
+async function loadLogs(first) {
+  if (first) setHtml('logs', skRows(4, 8));
   const d = $('logDate').value;
   const r = await api('/api/logs?limit=1000' + (d ? '&date=' + d : ''));
+  if (r.error) { setHtml('logs', emptyRow(4, 'circle-x', r.error)); return; }
   if (!logDatesLoaded && r.dates) { r.dates.forEach((x) => $('logDate').add(new Option(x, x))); logDatesLoaded = true; }
   const lv = $('logLevel').value, q = $('logSearch').value.toLowerCase();
   const rows = (r.entries || []).filter((e) => (!lv || e.level === lv) && (!q || JSON.stringify(e).toLowerCase().includes(q))).slice(0, 400);
-  $('logs').innerHTML = rows.map((e) => { const { ts, level, event, ...rest } = e;
-    return '<tr><td class="small">' + t(ts) + '</td><td class="lv-' + esc(level) + '">' + esc(level) + '</td><td>' + esc(event) + '</td><td class="mono small logd">' + esc(JSON.stringify(rest)) + '</td></tr>'; }).join('') || '<tr><td colspan="4" class="empty">No log entries.</td></tr>';
+  setHtml('logs', rows.map((e) => { const { ts, level, event, ...rest } = e;
+    return '<tr><td class="small" style="white-space:nowrap">' + t(ts) + '</td><td class="lv-' + esc(level) + '">' + esc(level) + '</td><td>' + esc(event) + '</td><td class="mono small logd">' + esc(JSON.stringify(rest)) + '</td></tr>'; }).join('') || emptyRow(4, 'list-details', 'No log entries.'));
 }
-['logDate', 'logLevel'].forEach((id) => ($(id).onchange = loadLogs));
-$('logSearch').oninput = loadLogs;
+['logDate', 'logLevel'].forEach((id) => ($(id).onchange = () => loadLogs(true)));
+$('logSearch').oninput = () => loadLogs(false);
+
+// ---------- alerts ----------
+const ALERT_NAMES = { pickup_stock_short: 'Pickup stock short', pickup_recheck_incomplete: 'Pickup check incomplete', autoline_down: 'Autoline unreachable' };
+const humanKey = (k) => ALERT_NAMES[k] || String(k || '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+async function loadAlerts(first) {
+  if (first) setHtml('alerts', Array.from({ length: 3 }, () => '<div class="alert-item"><span class="sk" style="width:34px;height:34px"></span><div style="flex:1"><span class="sk w30"></span><span class="sk w80" style="margin-top:8px"></span></div></div>').join(''));
+  const d = $('alDate').value;
+  const r = await api('/api/logs?level=alert&limit=500' + (d ? '&date=' + d : ''));
+  if (r.error) { setHtml('alerts', '<div class="empty">' + ic('circle-x', '') + esc(r.error) + '</div>'); return; }
+  if (!alDatesLoaded && r.dates) { r.dates.forEach((x) => $('alDate').add(new Option(x, x))); alDatesLoaded = true; }
+  if (!d) {
+    const files = await Promise.all((r.dates || []).slice(0, 7).map((x) => api('/api/logs?level=alert&limit=500&date=' + x)));
+    const seen = new Set();
+    r.entries = [].concat(r.entries || [], ...files.map((f) => f.entries || [])).filter((e) => {
+      const k = e.ts + '|' + e.event + '|' + (e.message || '');
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    }).sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+  }
+  const rows = (r.entries || []).filter((e) => e.level === 'alert');
+  const mail = S && S.config && S.config.alertEmail;
+  $('alInfo').textContent = mail ? 'Alerts are emailed to the configured recipients.' : 'Email alerts are not configured (SMTP in .env).';
+  setHtml('alerts', rows.map((e) => {
+    const warn = /incomplete/.test(e.event);
+    return '<div class="alert-item"><div class="ib' + (warn ? ' warn' : '') + '">' + ic(warn ? 'alert-triangle' : 'bell', '') + '</div><div style="min-width:0;flex:1"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="ttl">' + esc(humanKey(e.event)) + '</span>' + (e.order ? '<span class="badge b-neutral">' + esc(ord(e.order)) + '</span>' : '') + (mail ? '<span class="badge b-info">' + ic('mail') + 'Email</span>' : '') + '<span class="sp"></span><span class="small muted">' + t(e.ts) + '</span></div><div class="msg">' + esc(String(e.message || '').replace(/#{2,}/g, '#')) + '</div></div></div>';
+  }).join('') || '<div class="empty">' + ic('bell', '') + 'No alerts ' + (d ? 'on ' + esc(d) : 'recently') + '.</div>');
+}
+$('alDate').onchange = () => loadAlerts(true);
 
 // ---------- settings ----------
 let SET = [];
 let dirty = {};
 async function loadSettings() {
-  if (Object.keys(dirty).length) return; // don't wipe unsaved edits
+  if (Object.keys(dirty).length) return;
+  if (!SET.length) $('settings').innerHTML = '<div class="card set-group"><h3><span class="sk w30"></span></h3>' + Array.from({ length: 4 }, () => '<div class="field"><div><span class="sk w60"></span><span class="sk w30" style="margin-top:8px"></span></div><div><span class="sk w80" style="height:34px"></span></div></div>').join('') + '</div>';
   const r = await api('/api/settings');
   if (r.error) { showErr(r.error); return; }
   SET = r.settings;
@@ -409,6 +687,7 @@ function renderSettings() {
 function onEdit(el) {
   const k = el.dataset.k; if (!k) return;
   const f = SET.find((x) => x.key === k);
+  if (!f) return;
   const v = el.type === 'checkbox' ? String(el.checked) : el.value;
   const orig = f.type === 'bool' ? String(f.value === 'true') : f.value;
   if (v === orig) delete dirty[k]; else dirty[k] = v;
@@ -426,11 +705,12 @@ $('settings').addEventListener('click', async (e) => {
 function updateSavebar() {
   const n = Object.keys(dirty).length;
   $('savebar').classList.toggle('show', n > 0);
-  $('saveTxt').textContent = n + ' unsaved change' + (n === 1 ? '' : 's');
+  if (n) $('saveTxt').textContent = n + ' unsaved change' + (n === 1 ? '' : 's');
 }
 $('discard').onclick = () => { dirty = {}; showErr(''); renderSettings(); };
 $('save').onclick = async () => {
   if (dirty.DRY_RUN === 'false' && !confirm('Turn OFF dry run?\n\nThe app will start WRITING price, stock and status changes to Shopify.')) return;
+  if (dirty.AUTO_SYNC === 'true' && !confirm('Turn ON automatic sync?\n\nThe app will sync every interval and run the nightly check on its own.')) return;
   await saveSettings(dirty, []);
 };
 async function saveSettings(values, reset) {
@@ -446,12 +726,24 @@ async function saveSettings(values, reset) {
   toast(n ? 'Saved ' + n + ' setting' + (n === 1 ? '' : 's') + '. Applied immediately.' : 'Nothing changed');
   refresh();
 }
+window.addEventListener('beforeunload', (e) => { if (Object.keys(dirty).length) { e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- loop ----------
+let ticking = false;
 async function tick() {
-  try { await refresh(); if (tab === 'logs') await loadLogs(); } catch (e) { console.error(e); }
+  if (ticking) return;
+  ticking = true;
+  try { await refresh(); if (tab === 'logs') await loadLogs(false); if (tab === 'alerts') await loadAlerts(false); } catch (e) { console.error(e); }
+  ticking = false;
 }
-showTab(['overview', 'products', 'reports', 'logs', 'settings'].includes(tab) ? tab : 'overview');
+setHtml('parts', skRows(9, 8));
+setHtml('pkRows', skRows(5, 4));
+setHtml('kvStatus', Array.from({ length: 6 }, () => '<div><span class="sk w80"></span></div><div><span class="sk w60"></span></div>').join(''));
+setHtml('kvConfig', Array.from({ length: 6 }, () => '<div><span class="sk w80"></span></div><div><span class="sk w60"></span></div>').join(''));
+setHtml('reportChips', '<span class="sk w60" style="height:30px"></span>');
+setHtml('pkMini', '<span class="sk w60" style="height:30px"></span>');
+setHtml('reportList', '<table><tbody>' + skRows(2, 3) + '</tbody></table>');
+showTab(tab);
 tick();
 setInterval(tick, 10000);
 </script>

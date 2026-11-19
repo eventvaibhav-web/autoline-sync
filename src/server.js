@@ -158,6 +158,7 @@ const server = http.createServer(async (req, res) => {
           partsSource: config.partsSource, syncTag: config.syncTag, blockSaleAction: config.blockSaleAction,
           deliveryOnlyAction: config.deliveryOnlyAction, statusMetafields: config.statusMetafields, autoSync: config.sync.autoSync,
           overrides: overridesActive(), pickupRecheck: config.pickupRecheck, webhookSecretSet: !!config.shopify.webhookSecret,
+          alertEmail: !!(config.alerts.emailTo.length && config.alerts.smtp.host),
         },
         autoline: { lastSuccessAt: state.autolineLastSuccessAt, downSince: state.autolineDownSince, outageAlertSent: state.outageAlertSent },
         lastRun: state.lastRun,
@@ -166,7 +167,7 @@ const server = http.createServer(async (req, res) => {
         listError,
         lastReport: state.lastReport ? { at: state.lastReport.at, mode: state.lastReport.mode, counts: state.lastReport.counts } : null,
         reports: listReports().slice(0, 30),
-        pickupChecks: pickup.recentChecks(20),
+        pickupChecks: pickup.recentChecks(100),
         parts: list.map((p) => ({ ...p, ...(state.parts[p.sku] || {}) })),
       });
     }
@@ -174,6 +175,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/logs') {
       const date = url.searchParams.get('date');
       const limit = Math.min(Number(url.searchParams.get('limit')) || 300, 5000);
+      const level = url.searchParams.get('level');
+      if (level) {
+        const all = date ? readLogFile(date, 1e6) : logger.recent(1e6);
+        return send(res, 200, { dates: listLogDates(), entries: all.filter((e) => e.level === level).slice(0, limit) });
+      }
       return send(res, 200, { dates: listLogDates(), entries: date ? readLogFile(date, limit) : logger.recent(limit) });
     }
 

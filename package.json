@@ -1,6 +1,6 @@
 {
   "name": "autoline-sync",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Autoline -> Shopify stock, price and status sync (YK Almoayyed)",
   "main": "src/server.js",
   "private": true,
