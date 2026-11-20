@@ -9,6 +9,7 @@ const { config, validate, normBrand } = require('./config');
 const { logger, alert } = require('./logger');
 const autoline = require('./autoline');
 const shopify = require('./shopify');
+const acpairs = require('./acpairs');
 
 // ---------- State (state.json) ----------
 const DEFAULT_STATE = {
@@ -132,6 +133,9 @@ function resolveKey(item, v, ctx) {
   const key = baseKey(item, v, ctx);
   if (!key.partNumber) return key;
   if (key.partNumber.includes('+')) return { ...key, bundle: true };
+  // AC from the business pairs list (indoor -> outdoor): one product = indoor + outdoor + installation
+  const outdoor = acpairs.outdoorFor(key.partNumber);
+  if (outdoor) return { ...key, partNumber: `${key.partNumber}+${outdoor}`, via: `${key.via} + outdoor (AC list)`, bundle: true, acList: true };
   const tags = ((v.product && v.product.tags) || []).map((t) => t.toLowerCase());
   if (config.installationTag && tags.includes(config.installationTag) && /-I$/i.test(key.partNumber)) {
     const pn = key.partNumber;
@@ -405,7 +409,8 @@ async function processPart(item, state, ctx) {
   // 5) Price (+ installation charge: Autoline installation part, e.g. ZZCARR, for products tagged for installation;
   //    or a fixed amount in variant metafield autoline.installation_charge). Both are without VAT; VAT is added once.
   let install = Number(v.installationCharge) || 0;
-  if (!install && config.installationPart && config.installationTag && tagsLower.includes(config.installationTag)) {
+  const wantInstall = !!key.acList || !!(config.installationTag && tagsLower.includes(config.installationTag));
+  if (!install && config.installationPart && wantInstall) {
     if (ctx.installPrice === undefined) {
       const ip = await loadFromRooftop(config.installationPart, config.autoline.rooftopId, ctx, base);
       ctx.installPrice = ip.part && ip.part.found ? Number(ip.part.price1) || 0 : 0;
@@ -417,7 +422,7 @@ async function processPart(item, state, ctx) {
       snap.note = 'installation price missing - price not changed';
     }
   }
-  const installMissing = !install && config.installationTag && tagsLower.includes(config.installationTag) && !Number(v.installationCharge);
+  const installMissing = !install && wantInstall && !Number(v.installationCharge);
   const want = desiredPrices(install > 0 && part.price1 > 0 ? { ...part, price1: part.price1 + install, specialPrice: part.specialPrice > 0 ? part.specialPrice + install : 0 } : part);
   if (install > 0) snap.installationCharge = install;
   if (part.bundle) snap.bundle = part.bundle;

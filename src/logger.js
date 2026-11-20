@@ -100,10 +100,25 @@ async function alert(key, message, data = {}, { force = false } = {}) {
   }
   if (config.alerts.emailTo.length && config.alerts.smtp.host) {
     try {
-      await require('./mailer').sendMail({
+      const mailer = require('./mailer');
+      const esc = mailer.emailEsc;
+      const title = String(key).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+      const severe = /short|error|fail|down|unreachable/i.test(key);
+      const accent = severe ? '#d93025' : '#b06000';
+      const accentBg = severe ? '#fce8e6' : '#fef7e0';
+      const rows = Object.entries(data || {})
+        .map(([k, v]) => `<tr><td style="padding:7px 0;color:#5f6368;font-size:13px;width:140px;vertical-align:top;">${esc(k)}</td><td style="padding:7px 0;font-size:13px;color:#202124;word-break:break-word;">${esc(String(typeof v === 'object' ? JSON.stringify(v) : v).replace(/#{2,}/g, '#'))}</td></tr>`)
+        .join('');
+      const inner =
+        `<div style="display:inline-block;background:${accentBg};color:${accent};font-size:12px;font-weight:600;padding:4px 12px;border-radius:999px;margin:16px 0 10px;">Alert</div>` +
+        `<h1 style="font-size:20px;font-weight:600;margin:4px 0 10px;color:#202124;">${esc(title)}</h1>` +
+        `<p style="color:#444746;font-size:14px;margin:0 0 16px;line-height:1.6;">${esc(String(message).replace(/#{2,}/g, '#'))}</p>` +
+        (rows ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-top:1px solid #eef0f3;">${rows}</table>` : '');
+      await mailer.sendMail({
         to: config.alerts.emailTo,
-        subject: `[Autoline-Shopify Sync] ${key}`,
+        subject: `[Shopify Autoline Sync] ${title}`,
         text: `${message}\n\n${JSON.stringify(data, null, 2)}\n\nTime: ${new Date().toISOString()}`,
+        html: mailer.emailShell(title, inner, 'Sent ' + new Date().toUTCString() + ' by the Shopify Autoline Sync dashboard.'),
       });
     } catch (e) {
       log('error', 'alert_email_failed', { error: e.message });

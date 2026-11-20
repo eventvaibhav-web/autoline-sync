@@ -1,6 +1,6 @@
 {
   "name": "autoline-sync",
-  "version": "1.10.0",
+  "version": "1.24.0",
   "description": "Autoline -> Shopify stock, price and status sync (YK Almoayyed)",
   "main": "src/server.js",
   "private": true,
@@ -19,7 +19,8 @@
     "recheck-order": "node src/pickup.js",
     "register-webhook": "node scripts/register-webhook.js",
     "test-email": "node src/mailer.js",
-    "apply-category": "node scripts/apply-category.js"
+    "apply-category": "node scripts/apply-category.js",
+    "ac-pairs": "node scripts/ac-pairs.js"
   },
   "dependencies": {}
 }

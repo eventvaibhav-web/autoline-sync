@@ -9,3 +9,5 @@ settings.json.tmp
 pickup.json
 pickup.json.tmp
 *.xlsx
+users.json
+users.json.tmp

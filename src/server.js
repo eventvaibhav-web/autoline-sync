@@ -79,11 +79,39 @@ function safeEqual(a, b) {
   const y = Buffer.from(String(b || ''));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
-function authed(req, url) {
-  return safeEqual(req.headers['x-admin-token'] || url.searchParams.get('token'), config.server.adminToken);
+// ---------- Sign-in (see auth.js) ----------
+const auth = require('./auth');
+const loginOn = () => auth.enabled();
+const clientIp = (req) => auth.clientIp(req);
+// Who is asking: { user, role } for a signed-in user, { user: 'admin-token', role: 'admin' } for scripts with the header.
+// A request that reached the Node process directly from the same machine (loopback), judged by the RAW socket
+// address only - never x-forwarded-for, which a client can fake. Used to keep the admin-token header internal.
+function isLocalRequest(req) {
+  const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  return ip === '127.0.0.1' || ip === '::1';
+}
+function whoami(req, url) {
+  const headerOk = safeEqual(req.headers['x-admin-token'], config.server.adminToken);
+  if (loginOn()) {
+    // Login is active: the admin-token header still works for local scripts/cron on the server, but never from
+    // outside, so a leaked token cannot bypass login over the internet. The ?token= URL is ignored entirely.
+    if (headerOk && isLocalRequest(req)) return { user: 'admin-token', role: 'admin' };
+    return auth.currentUser(req);
+  }
+  // No dashboard users set up yet (first run / dev): the token is the only lock, via header or ?token=.
+  if (headerOk) return { user: 'admin-token', role: 'admin' };
+  return safeEqual(url.searchParams.get('token'), config.server.adminToken) ? { user: 'admin-token', role: 'admin' } : null;
+}
+function ipAllowed(req) {
+  const list = config.server.allowedIps;
+  return !list.length || list.includes(clientIp(req));
+}
+function redirect(res, to) {
+  res.writeHead(303, { Location: to, 'Cache-Control': 'no-store' });
+  res.end();
 }
 function send(res, code, body, type = 'application/json') {
-  res.writeHead(code, { 'Content-Type': type + '; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' });
+  res.writeHead(code, { 'Content-Type': type + '; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
   res.end(type === 'application/json' ? JSON.stringify(body) : body);
 }
 function readRaw(req) {
@@ -122,12 +150,36 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (!authed(req, url)) {
+  if (!ipAllowed(req)) {
+    logger.warn('access_blocked_ip', { ip: clientIp(req), path: url.pathname });
+    return send(res, 403, url.pathname.startsWith('/api/') ? { error: 'forbidden' } : '<h3>Access denied</h3>', url.pathname.startsWith('/api/') ? 'application/json' : 'text/html');
+  }
+
+  if (loginOn() && (await auth.handlePages(req, res, url))) return;
+
+  const me = whoami(req, url);
+  if (!me) {
+    if (loginOn() && req.method === 'GET' && !url.pathname.startsWith('/api/')) return redirect(res, '/login');
     if (url.pathname === '/') return send(res, 401, '<h3>Unauthorized. Open /?token=YOUR_ADMIN_TOKEN</h3>', 'text/html');
     return send(res, 401, { error: 'unauthorized' });
   }
+  if (me.mustChange) {
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) return redirect(res, '/change-password');
+    return send(res, 403, { error: 'Set your own password first' });
+  }
+  // Viewers can look, not change anything
+  if (req.method === 'POST' && me.role !== 'admin') return send(res, 403, { error: 'Your account is read-only. Ask an admin.' });
   try {
     if (req.method === 'GET' && url.pathname === '/') return send(res, 200, dashboardHtml(), 'text/html');
+
+    if (req.method === 'GET' && url.pathname === '/api/users') {
+      if (me.role !== 'admin') return send(res, 403, { error: 'Admins only' });
+      return send(res, 200, { users: auth.listUsers(), otp: auth.otpOn(), smtp: auth.smtpReady() });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/users') {
+      const r = await auth.userAction(me.user === 'admin-token' ? null : me, await readBody(req), req);
+      return send(res, r.error ? 400 : 200, r);
+    }
 
     if (req.method === 'GET' && url.pathname === '/api/settings') {
       return send(res, 200, { settings: getSettings(), running: !!isRunning() });
@@ -157,6 +209,7 @@ const server = http.createServer(async (req, res) => {
       if (config.partsSource === 'tag') list = Object.values(state.parts).map((p) => ({ sku: p.sku, partNumber: p.partNumber }));
       else try { list = readPartsList(); } catch (e) { listError = e.message; }
       return send(res, 200, {
+        user: me.user === 'admin-token' ? null : me.user, role: me.role, loginOn: loginOn(),
         now: new Date().toISOString(),
         running: isRunning(),
         nextScheduledAt,

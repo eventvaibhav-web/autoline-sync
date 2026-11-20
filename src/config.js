@@ -190,6 +190,29 @@ function build() {
     // On Render (RENDER env is set) the app must listen on 0.0.0.0
     host: env('HOST', process.env.RENDER ? '0.0.0.0' : '127.0.0.1'),
     adminToken: env('ADMIN_TOKEN', ''),
+    // First admin users, used only on the very first start (then users are managed in the dashboard):
+    // "user:password:email,user2:password2:email2"
+    users: env('DASHBOARD_USERS', '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => {
+        const i = s.indexOf(':');
+        if (i <= 0) return null;
+        let pass = s.slice(i + 1);
+        let email = '';
+        const j = pass.lastIndexOf(':');
+        if (j > 0 && pass.slice(j + 1).includes('@')) {
+          email = pass.slice(j + 1).trim();
+          pass = pass.slice(0, j);
+        }
+        return { user: s.slice(0, i).trim(), pass, email };
+      })
+      .filter((u) => u && u.user && u.pass),
+    loginOtp: bool('LOGIN_EMAIL_OTP', true),
+    sessionHours: num('SESSION_HOURS', 12),
+    // Optional: only these IPs may open the dashboard (comma separated). Empty = any IP (login still required).
+    allowedIps: env('ALLOWED_IPS', '').split(',').map((s) => s.trim()).filter(Boolean),
   },
   };
 }
