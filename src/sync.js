@@ -471,33 +471,33 @@ async function processPart(item, state, ctx) {
     for (const t of ctx.targets) {
       const deKey = `${v.inventoryItemId}|${t.locationId}`;
       let lvl = v.levels[t.locationId];
-      const row = { location: t.name, rooftopId: t.rooftopId, shopify: lvl ? lvl.available : null, target: null };
+      const row = { location: t.name, rooftopId: t.rooftopId, outlet: !!t.outlet, writable: !!t.writable, shopify: lvl ? lvl.available : null, target: null };
       snap.stocks.push(row);
       const outletDeliveryOnly = deliveryOnly && t.outlet;
 
-      // Re-activate an outlet the app deactivated earlier, once the product is no longer delivery-only
-      if (!lvl && !outletDeliveryOnly && state.deactivatedByApp[deKey]) {
-        await shopify.activateInventory(v.inventoryItemId, t.locationId);
-        delete state.deactivatedByApp[deKey];
-        logger.change('inventory_reactivated', { ...base, location: t.name });
-        snap.changes.push(`${t.name}: inventory re-activated`);
-        lvl = { id: null, name: t.name, available: 0 };
-        row.shopify = 0;
-      }
-      // Product not set up at this location yet (e.g. Gudaibiya): stock it there, so pickup can be offered
-      if (!lvl && !outletDeliveryOnly && config.stockAtAllLocations) {
-        await shopify.activateInventory(v.inventoryItemId, t.locationId);
-        logger.change('inventory_activated', { ...base, location: t.name });
-        snap.changes.push(`${t.name}: product stocked here`);
-        lvl = { id: null, name: t.name, available: 0 };
-        row.shopify = 0;
-      }
-      if (!lvl) {
-        if (!outletDeliveryOnly) logger.skip('variant_not_stocked_at_location', { ...base, location: t.name, note: 'not changing stocking settings' });
-        row.note = outletDeliveryOnly ? 'delivery only - not stocked' : 'not stocked here';
-        continue;
+      // Auto-stocking (re-activate / stock-at-all-locations) only for locations we actually write to.
+      if (t.writable) {
+        // Re-activate an outlet the app deactivated earlier, once the product is no longer delivery-only
+        if (!lvl && !outletDeliveryOnly && state.deactivatedByApp[deKey]) {
+          await shopify.activateInventory(v.inventoryItemId, t.locationId);
+          delete state.deactivatedByApp[deKey];
+          logger.change('inventory_reactivated', { ...base, location: t.name });
+          snap.changes.push(`${t.name}: inventory re-activated`);
+          lvl = { id: null, name: t.name, available: 0 };
+          row.shopify = 0;
+        }
+        // Product not set up at this location yet (e.g. Gudaibiya): stock it there, so pickup can be offered
+        if (!lvl && !outletDeliveryOnly && config.stockAtAllLocations) {
+          await shopify.activateInventory(v.inventoryItemId, t.locationId);
+          logger.change('inventory_activated', { ...base, location: t.name });
+          snap.changes.push(`${t.name}: product stocked here`);
+          lvl = { id: null, name: t.name, available: 0 };
+          row.shopify = 0;
+        }
       }
 
+      // Work out the Autoline quantity for this location. We do this even for outlet locations we do
+      // not write to, so the dashboard can show their Autoline stock (read-only).
       let qty;
       if (blocked && config.blockSaleAction === 'zero') {
         qty = 0;
@@ -505,7 +505,7 @@ async function processPart(item, state, ctx) {
       } else if (outletDeliveryOnly) {
         qty = 0;
         row.note = 'delivery only';
-        if (config.deliveryOnlyAction === 'deactivate' && lvl.id) toDeactivate.push({ t, lvl, deKey });
+        if (t.writable && lvl && config.deliveryOnlyAction === 'deactivate' && lvl.id) toDeactivate.push({ t, lvl, deKey });
       } else {
         const src = t.rooftopId === part.rooftopId ? { part } : await loadFromRooftop(key.partNumber, t.rooftopId, ctx, base);
         if (src.down) {
@@ -513,13 +513,24 @@ async function processPart(item, state, ctx) {
           continue;
         }
         if (!src.part.found) {
-          logger.skip('part_not_found_in_rooftop', { ...base, rooftopId: t.rooftopId, location: t.name, errorMessage: src.part.errorMessage });
-          row.note = 'not in this rooftop - unchanged';
+          if (t.writable) logger.skip('part_not_found_in_rooftop', { ...base, rooftopId: t.rooftopId, location: t.name, errorMessage: src.part.errorMessage });
+          row.note = 'not in this rooftop';
           continue;
         }
         qty = toQty(src.part, t.rooftopId, base);
       }
       row.target = qty;
+
+      // Outlet location with writing turned off: show the Autoline figure, never push it to Shopify.
+      if (!t.writable) {
+        row.note = row.note ? row.note + ' - not synced' : 'Autoline only - not synced';
+        continue;
+      }
+      if (!lvl) {
+        logger.skip('variant_not_stocked_at_location', { ...base, location: t.name, note: 'not changing stocking settings' });
+        row.note = row.note || 'not stocked here';
+        continue;
+      }
       if (lvl.available !== qty) writes.push({ locationId: t.locationId, quantity: qty, from: lvl.available, name: t.name });
     }
     if (writes.length) {
@@ -597,8 +608,11 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
   try {
     logger.info('run_started', { runId, mode, trigger, onlySku, dryRun: config.sync.dryRun });
     ctx.targets = await shopify.getTargetLocations();
-    if (!config.outletStockSync) ctx.targets = ctx.targets.filter((t) => !t.outlet);
-    if (!ctx.targets.length) throw new Error('No Shopify location to write: map the main rooftop (e.g. SOC1P_PH) to "Online Store Location" in LOCATION_STOCK_MAP');
+    // Outlet locations (Manama / Gudaibiya): their Autoline stock is still READ and shown in the
+    // dashboard, but it is only WRITTEN to Shopify when OUTLET_STOCK_SYNC is on. "writable" carries
+    // that distinction; targets are no longer dropped, so the Products panel can show outlet stock.
+    for (const t of ctx.targets) t.writable = config.outletStockSync || !t.outlet;
+    if (!ctx.targets.some((t) => t.writable)) throw new Error('No writable Shopify location: map the main rooftop (e.g. SOC1P_PH) to "Online Store Location" in LOCATION_STOCK_MAP');
     ctx.franchise = await loadFranchiseIndex(ctx);
     let list = await getPartsList();
     const listSkus = new Set(list.map((x) => x.sku));

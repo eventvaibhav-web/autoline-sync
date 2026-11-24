@@ -140,6 +140,10 @@ textarea{height:auto;padding:10px 14px;line-height:1.5}
 .input::placeholder,textarea::placeholder{color:var(--muted)}
 .input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);border-width:2px;padding:0 13px}
 textarea:focus{padding:9px 13px}
+.locpick{position:relative;display:flex;align-items:center}
+.locpick .msym{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:20px;pointer-events:none}
+.locpick select{padding-left:42px;min-width:200px;border-radius:var(--r-pill);cursor:pointer;font-weight:500}
+.locpick select:focus{padding-left:41px}
 .searchbox{position:relative;min-width:0}
 .searchbox .msym{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:20px}
 .searchbox .input{padding-left:44px;min-width:280px;border-radius:var(--r-pill)}
@@ -318,6 +322,7 @@ body.ro .banner .linkbtn{display:none}
   <div class="grp">Stock sync</div>
   <button class="nav" data-tab="overview"><svg class="msym"><use href="#m-dashboard"/></svg>Overview</button>
   <button class="nav" data-tab="products"><svg class="msym"><use href="#m-inventory_2"/></svg>Products<span class="cnt" id="nProducts">–</span></button>
+  <button class="nav" data-tab="ac"><svg class="msym"><use href="#m-apps"/></svg>Split AC<span class="cnt hide" id="nAc">0</span></button>
   <button class="nav" data-tab="reports"><svg class="msym"><use href="#m-assessment"/></svg>Reports</button>
   <div class="grp">Pickup</div>
   <button class="nav" data-tab="pickup"><svg class="msym"><use href="#m-storefront"/></svg>Pickup checks<span class="cnt hide" id="nShort">0</span></button>
@@ -363,6 +368,7 @@ body.ro .banner .linkbtn{display:none}
     <!-- PRODUCTS -->
     <section class="page" id="tab-products">
       <div class="toolbar">
+        <div class="locpick"><svg class="msym sm"><use href="#m-storefront"/></svg><select class="input" id="pLoc"><option value="all">All locations</option></select></div>
         <div class="searchbox"><svg class="msym sm"><use href="#m-search"/></svg><input class="input" id="pSearch" placeholder="Search SKU, part number, product, note"></div>
         <div class="chips" id="pFilters"></div>
       </div>
@@ -374,6 +380,22 @@ body.ro .banner .linkbtn{display:none}
           </table>
         </div>
         <div class="more small muted" id="pMore"></div>
+      </div>
+    </section>
+
+    <section class="page" id="tab-ac">
+      <div class="toolbar">
+        <div class="searchbox"><svg class="msym sm"><use href="#m-search"/></svg><input class="input" id="acSearch" placeholder="Search indoor/outdoor part, SKU, product"></div>
+      </div>
+      <div id="acInfo" class="banner info hide"></div>
+      <div class="card">
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Indoor part</th><th>Outdoor part</th><th>Product (indoor)</th><th>Stock (In / Out → Combined)</th><th>Combined price</th><th>Status</th></tr></thead>
+            <tbody id="acBody"></tbody>
+          </table>
+        </div>
+        <div class="more small muted" id="acMore"></div>
       </div>
     </section>
 
@@ -539,6 +561,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePmenu
 const PAGES = {
   overview: ['Overview', 'Stock and price sync from Autoline'],
   products: ['Products', 'Every Shopify product with the sync tag'],
+  ac: ['Split AC', 'Indoor + outdoor sold as one product (indoor + outdoor + installation + VAT)'],
   reports: ['Reports', 'Daily business reports and CSV downloads'],
   pickup: ['Pickup checks', 'Store pickup orders vs outlet stock in Autoline'],
   alerts: ['Alerts sent', 'Email alerts sent by the app'],
@@ -563,6 +586,7 @@ function showTab(name) {
   if (name === 'alerts') loadAlerts(true);
   if (name === 'settings') loadSettings();
   if (name === 'users') loadUsers(true);
+  if (name === 'ac') loadAcPairs();
 }
 document.querySelectorAll('.nav').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) showTab(g.dataset.goto); });
@@ -573,6 +597,8 @@ $('scrim').onclick = () => document.body.classList.remove('nav-open');
 let S = null;
 let pFilter = 'all';
 let pLimit = 200;
+let pLoc = 'all';
+let pLocOpts = '';
 let pkFilter = 'all';
 async function refresh() {
   const s = await api('/api/status');
@@ -746,18 +772,38 @@ function rowMatches(p, q) {
   if (!q) return true;
   return [p.sku, p.partNumber, p.title, p.note, (p.changes || []).join(' '), p.vendor].join(' ').toLowerCase().includes(q);
 }
+// Stock cell: "Shopify → Autoline" per location. Outlet locations that are not written to Shopify
+// are shown with a "not synced" badge (their figure is Autoline-only, for reference).
+function stockCell(p) {
+  let list = p.stocks || [];
+  if (pLoc !== 'all') list = list.filter((x) => x.location === pLoc);
+  if (!list.length) return '<span class="muted">—</span>';
+  return list.map((x) => {
+    const noSync = x.outlet && x.writable === false;
+    const badge = noSync ? ' <span class="badge b-skipped" style="padding:1px 7px;font-size:11px">not synced</span>' : '';
+    return '<div class="loc"><span>' + esc(outlet(x.location)) + badge + '</span><b>' + (x.shopify ?? '—') + ' → ' + (x.target ?? '—') + '</b></div>' +
+      (x.note ? '<div class="small muted">' + esc(x.note) + '</div>' : '');
+  }).join('');
+}
 function renderParts() {
   if (!S) return;
   const parts = S.parts || [];
   const counts = { all: parts.length, changed: 0, unchanged: 0, skipped: 0, error: 0 };
   parts.forEach((p) => { if (counts[p.result] !== undefined) counts[p.result]++; });
   setHtml('pFilters', ['all', 'changed', 'unchanged', 'skipped', 'error'].map((f) => '<button class="chip' + (pFilter === f ? ' on' : '') + '" data-f="' + f + '">' + f[0].toUpperCase() + f.slice(1) + ' <span class="n">' + counts[f] + '</span></button>').join(''));
+  // Location switcher options come from the locations actually present in the data.
+  const locNames = [];
+  parts.forEach((p) => (p.stocks || []).forEach((x) => { if (x.location && !locNames.includes(x.location)) locNames.push(x.location); }));
+  const opts = '<option value="all">All locations</option>' + locNames.map((n) => '<option value="' + esc(n) + '">' + esc(outlet(n)) + '</option>').join('');
+  if (opts !== pLocOpts) { pLocOpts = opts; $('pLoc').innerHTML = opts; }
+  if (pLoc !== 'all' && !locNames.includes(pLoc)) pLoc = 'all';
+  $('pLoc').value = pLoc;
   const q = $('pSearch').value.trim().toLowerCase();
   const rows = parts.filter((p) => rowMatches(p, q));
   const shown = rows.slice(0, pLimit);
   setHtml('parts', shown.map((p) => {
     const a = p.autoline || {};
-    const stocks = (p.stocks || []).map((x) => '<div class="loc"><span>' + esc(outlet(x.location)) + '</span><b>' + (x.shopify ?? '—') + ' → ' + (x.target ?? '—') + '</b></div>' + (x.note ? '<div class="small muted">' + esc(x.note) + '</div>' : '')).join('');
+    const stocks = stockCell(p);
     return '<tr>' +
       '<td class="mono">' + esc(p.sku) + '</td>' +
       '<td class="mono">' + esc(p.partNumber || '—') + (p.keyVia ? '<div class="small muted">via ' + esc(p.keyVia) + '</div>' : '') + '</td>' +
@@ -772,6 +818,7 @@ function renderParts() {
   }).join('') || emptyRow(9, 'search', 'No products match.'));
   setHtml('pMore', rows.length > shown.length ? 'Showing ' + shown.length + ' of ' + rows.length + ' · <button class="linkbtn" id="moreBtn">Show more</button>' : rows.length + ' product(s)');
 }
+$('pLoc').onchange = () => { pLoc = $('pLoc').value; renderParts(); };
 $('pSearch').oninput = () => { pLimit = 200; renderParts(); };
 $('pFilters').onclick = (e) => { const b = e.target.closest('[data-f]'); if (b) { pFilter = b.dataset.f; pLimit = 200; renderParts(); } };
 $('pMore').onclick = (e) => { if (e.target.id === 'moreBtn') { pLimit += 200; renderParts(); } };
@@ -789,6 +836,45 @@ $('syncAll').onclick = async () => {
   toast(r.error ? r.error : 'Full sync started');
   setTimeout(tick, 1000);
 };
+
+// ---------- split AC ----------
+let acData = null;
+const AC_STATUS = { ok: ['b-ok', 'OK'], outdoor_missing: ['b-warn', 'Outdoor missing'], not_synced: ['b-neutral', 'Not synced yet'] };
+async function loadAcPairs() {
+  if (!acData) setHtml('acBody', skRows(4, 6));
+  const r = await api('/api/ac-pairs');
+  if (r.error) { setHtml('acBody', emptyRow(6, 'circle-x', r.error)); return; }
+  acData = r;
+  const n = $('nAc'); n.textContent = r.configured || 0; n.classList.toggle('hide', !r.configured);
+  renderAc();
+}
+function renderAc() {
+  if (!acData) return;
+  const info = $('acInfo');
+  if (!acData.configured) {
+    info.className = 'banner info';
+    info.innerHTML = ic('info-circle') + '<span>No AC pairs configured yet. Apply the AC list with <b>npm run ac-pairs -- "&lt;file&gt;.xlsx" --apply</b>, then run a sync.</span>';
+  } else {
+    info.className = 'banner info';
+    info.innerHTML = ic('info-circle') + '<span>' + acData.configured + ' AC pair(s). Each is sold as ONE product (the indoor one): price = indoor + outdoor + ' + esc(acData.installPart || 'installation') + ' + ' + (acData.vatPercent || 0) + '% VAT; stock = the lower of indoor and outdoor.' + (acData.savedAt ? ' List saved ' + tShort(acData.savedAt) + '.' : '') + '</span>';
+  }
+  const q = $('acSearch').value.trim().toLowerCase();
+  const rows = (acData.rows || []).filter((x) => !q || [x.indoor, x.outdoor, x.sku, x.title, x.indoorName, x.outdoorName].join(' ').toLowerCase().includes(q));
+  const stk = (v) => (v === null || v === undefined ? '—' : v);
+  setHtml('acBody', rows.map((x) => {
+    const st = AC_STATUS[x.status] || AC_STATUS.not_synced;
+    return '<tr>' +
+      '<td class="mono">' + esc(x.indoor) + (x.indoorName ? '<div class="small muted">' + esc(x.indoorName) + '</div>' : '') + '</td>' +
+      '<td class="mono">' + esc(x.outdoor) + (x.outdoorName ? '<div class="small muted">' + esc(x.outdoorName) + '</div>' : '') + '</td>' +
+      '<td>' + (x.title ? '<div class="strong">' + esc(x.title) + '</div>' : '<span class="muted">—</span>') + (x.sku ? '<div class="small muted mono">' + esc(x.sku) + '</div>' : '') + '</td>' +
+      '<td><span class="qty">' + stk(x.indoorStock) + '</span> / <span class="qty">' + stk(x.outdoorStock) + '</span> → <b class="qty">' + stk(x.combinedStock) + '</b></td>' +
+      '<td>' + (x.combinedPrice !== null && x.combinedPrice !== undefined ? '<span class="qty">' + esc(x.combinedPrice) + '</span>' : '<span class="muted">—</span>') + (x.installCharge ? '<div class="small muted">incl. install ' + esc(x.installCharge) + '</div>' : '') + '</td>' +
+      '<td><span class="badge ' + st[0] + '">' + st[1] + '</span>' + (x.note ? '<div class="small muted">' + esc(x.note) + '</div>' : '') + '</td>' +
+      '</tr>';
+  }).join('') || emptyRow(6, 'search', acData.configured ? 'No AC pairs match.' : 'No AC pairs configured yet.'));
+  setHtml('acMore', (acData.rows || []).length + ' AC pair(s)');
+}
+$('acSearch').oninput = () => renderAc();
 
 // ---------- logs ----------
 let logDatesLoaded = false;

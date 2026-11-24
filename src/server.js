@@ -8,6 +8,7 @@ const path = require('path');
 const { config, validate, getSettings, updateSettings, overridesActive } = require('./config');
 const shopify = require('./shopify');
 const pickup = require('./pickup');
+const acpairs = require('./acpairs');
 const { logger, readLogFile, listLogDates, cleanupOldLogs } = require('./logger');
 const { runSync, isRunning, loadState, readPartsList, listReports, readReport } = require('./sync');
 
@@ -256,6 +257,49 @@ const server = http.createServer(async (req, res) => {
       if (!csv) return send(res, 404, { error: 'report not found' });
       res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
       return res.end('\uFEFF' + csv);
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/ac-pairs') {
+      const { source, savedAt, pairs } = acpairs.list();
+      const state = loadState();
+      const vat = Number(config.priceVatPercent) || 0;
+      const norm = (s) => String(s || '').trim().toUpperCase();
+      // Index synced AC products (snapshots that carry an indoor+outdoor bundle) by indoor part number.
+      const byIndoor = {};
+      for (const snap of Object.values(state.parts || {})) {
+        if (snap && Array.isArray(snap.bundle) && snap.bundle.length >= 2) byIndoor[norm(snap.bundle[0].partNumber)] = snap;
+      }
+      const rows = pairs.map((p) => {
+        const indoor = norm(p.indoor);
+        const outdoor = norm(p.outdoor);
+        const snap = byIndoor[indoor] || null;
+        const row = {
+          indoor, outdoor,
+          indoorName: p.indoorName || p.name || null,
+          outdoorName: p.outdoorName || null,
+          sku: snap ? snap.sku : (p.sku || null),
+          title: snap ? snap.title : null,
+          indoorStock: null, outdoorStock: null, combinedStock: null,
+          indoorPrice: null, outdoorPrice: null, installCharge: snap && snap.installationCharge ? snap.installationCharge : null,
+          combinedPrice: null, status: 'not_synced', note: snap ? snap.note || '' : 'not synced yet',
+        };
+        if (snap) {
+          const bi = snap.bundle.find((b) => norm(b.partNumber) === indoor);
+          const bo = snap.bundle.find((b) => norm(b.partNumber) === outdoor);
+          if (bi) { row.indoorStock = bi.totalStockQty; row.indoorPrice = bi.price1; }
+          if (bo) { row.outdoorStock = bo.totalStockQty; row.outdoorPrice = bo.price1; }
+          if (bi && bo) {
+            row.combinedStock = Math.min(Number(bi.totalStockQty) || 0, Number(bo.totalStockQty) || 0);
+            const sub = (Number(bi.price1) || 0) + (Number(bo.price1) || 0) + (Number(row.installCharge) || 0);
+            row.combinedPrice = sub > 0 ? Number((sub * (1 + vat / 100)).toFixed(3)) : null;
+            row.status = 'ok';
+          } else {
+            row.status = 'outdoor_missing';
+          }
+        }
+        return row;
+      });
+      return send(res, 200, { configured: pairs.length, source, savedAt, vatPercent: vat, installPart: config.installationPart, rows });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/pickup-recheck') {

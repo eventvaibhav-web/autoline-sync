@@ -32,10 +32,21 @@ function load() {
 }
 const outdoorFor = (indoorPart) => load().get(norm(indoorPart)) || null;
 const isOutdoor = (part) => [...load().values()].includes(norm(part));
+// Full list for the dashboard: the saved pairs plus file metadata (empty when not configured yet).
+function list() {
+  load();
+  let raw = {};
+  try {
+    raw = JSON.parse(fs.readFileSync(FILE(), 'utf8'));
+  } catch {
+    return { source: null, savedAt: null, pairs: [] };
+  }
+  return { source: raw.source || null, savedAt: raw.savedAt || null, pairs: Array.isArray(raw.pairs) ? raw.pairs : [] };
+}
 function save(pairs, source) {
   fs.mkdirSync(path.dirname(FILE()), { recursive: true });
   fs.writeFileSync(FILE() + '.tmp', JSON.stringify({ source, savedAt: new Date().toISOString(), pairs }, null, 2));
   fs.renameSync(FILE() + '.tmp', FILE());
   cache.mtime = -1;
 }
-module.exports = { outdoorFor, isOutdoor, save, count: () => load().size, FILE };
+module.exports = { outdoorFor, isOutdoor, list, save, count: () => load().size, FILE };
