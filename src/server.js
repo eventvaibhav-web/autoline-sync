@@ -107,12 +107,24 @@ function ipAllowed(req) {
   const list = config.server.allowedIps;
   return !list.length || list.includes(clientIp(req));
 }
+// Security headers applied to every response (VAPT YKA-C-006). CSP allows the dashboard's own inline
+// script/style and the Poppins webfont; HSTS is only sent once the app is served over HTTPS (HSTS flag).
+const SEC_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+  ...(config.server.hsts ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' } : {}),
+};
 function redirect(res, to) {
-  res.writeHead(303, { Location: to, 'Cache-Control': 'no-store' });
+  res.writeHead(303, { Location: to, 'Cache-Control': 'no-store', ...SEC_HEADERS });
   res.end();
 }
 function send(res, code, body, type = 'application/json') {
-  res.writeHead(code, { 'Content-Type': type + '; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
+  res.writeHead(code, { 'Content-Type': type + '; charset=utf-8', 'Cache-Control': 'no-store', ...SEC_HEADERS });
   res.end(type === 'application/json' ? JSON.stringify(body) : body);
 }
 function readRaw(req) {
@@ -130,6 +142,23 @@ function readBody(req) {
     req.on('data', (c) => { d += c; if (d.length > 1e5) req.destroy(); });
     req.on('end', () => { try { resolve(d ? JSON.parse(d) : {}); } catch { resolve({}); } });
   });
+}
+// Mask PII and server file paths before sending log entries to the dashboard (VAPT YKA-C-005 / C-007).
+function maskString(s) {
+  return String(s)
+    .replace(/\/(?:home|root|var|opt|usr|tmp|mnt|srv|etc)\/[^\s"']*\/([^\s"'/]+)/g, '$1') // abs server path -> file name
+    .replace(/([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g, '$1***@$2') // email -> a***@domain
+    .replace(/\b(\d{1,3}\.\d{1,3})\.\d{1,3}\.\d{1,3}\b/g, '$1.x.x'); // IPv4 -> keep first two octets
+}
+function maskValue(v) {
+  if (typeof v === 'string') return maskString(v);
+  if (Array.isArray(v)) return v.map(maskValue);
+  if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = maskValue(v[k]); return o; }
+  return v;
+}
+function maskLogEntry(e) {
+  const { ts, level, event, ...rest } = e;
+  return { ts, level, event, ...maskValue(rest) };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -237,14 +266,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/logs') {
+      // Security (VAPT YKA-C-003): audit logs are for admins only, enforced server-side.
+      if (me.role !== 'admin') return send(res, 403, { error: 'Admins only' });
       const date = url.searchParams.get('date');
-      const limit = Math.min(Number(url.searchParams.get('limit')) || 300, 5000);
+      // Security (VAPT YKA-C-003): bound the limit parameter.
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 300, 1), 500);
       const level = url.searchParams.get('level');
-      if (level) {
-        const all = date ? readLogFile(date, 1e6) : logger.recent(1e6);
-        return send(res, 200, { dates: listLogDates(), entries: all.filter((e) => e.level === level).slice(0, limit) });
-      }
-      return send(res, 200, { dates: listLogDates(), entries: date ? readLogFile(date, limit) : logger.recent(limit) });
+      const pick = level
+        ? (date ? readLogFile(date, 1e6) : logger.recent(1e6)).filter((e) => e.level === level).slice(0, limit)
+        : (date ? readLogFile(date, limit) : logger.recent(limit));
+      // Security (VAPT YKA-C-005 / C-007): mask emails and IPs and hide absolute server paths in the dashboard view.
+      return send(res, 200, { dates: listLogDates(), entries: pick.map(maskLogEntry) });
     }
 
     if (req.method === 'GET' && url.pathname === '/api/report') {
@@ -255,7 +287,7 @@ const server = http.createServer(async (req, res) => {
       }
       const csv = readReport(name);
       if (!csv) return send(res, 404, { error: 'report not found' });
-      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store', ...SEC_HEADERS });
       return res.end('\uFEFF' + csv);
     }
 

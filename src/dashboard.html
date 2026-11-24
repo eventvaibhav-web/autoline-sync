@@ -328,7 +328,7 @@ body.ro .banner .linkbtn{display:none}
   <button class="nav" data-tab="pickup"><svg class="msym"><use href="#m-storefront"/></svg>Pickup checks<span class="cnt hide" id="nShort">0</span></button>
   <button class="nav" data-tab="alerts"><svg class="msym"><use href="#m-notifications"/></svg>Alerts sent</button>
   <div class="grp">System</div>
-  <button class="nav" data-tab="logs"><svg class="msym"><use href="#m-format_list_bulleted"/></svg>Logs</button>
+  <button class="nav" data-tab="logs" id="navLogs"><svg class="msym"><use href="#m-format_list_bulleted"/></svg>Logs</button>
   <button class="nav" data-tab="settings"><svg class="msym"><use href="#m-settings"/></svg>Settings</button>
   <button class="nav hide" data-tab="users" id="navUsers"><svg class="msym"><use href="#m-group"/></svg>Users</button>
   <div class="foot" id="sideStatus">
@@ -615,7 +615,11 @@ async function refresh() {
   if (s.user) { $('pmAvatar').textContent = initials; $('pmName').textContent = s.user; $('pmRole').textContent = s.role; }
   document.body.classList.toggle('ro', s.role === 'viewer');
   $('navUsers').classList.toggle('hide', !(s.loginOn && s.role === 'admin'));
+  // Security (VAPT YKA-C-003): audit logs are admin-only.
+  const logsAllowed = !s.loginOn || s.role === 'admin';
+  $('navLogs').classList.toggle('hide', !logsAllowed);
   if (tab === 'users' && !(s.loginOn && s.role === 'admin')) showTab('overview');
+  if (tab === 'logs' && !logsAllowed) showTab('overview');
   if (s.running) { pill.className = 'pill info'; pill.innerHTML = '<span class="dot pulse"></span>Syncing (' + esc(s.running.mode) + ')'; }
   else if (s.autoline.downSince) { pill.className = 'pill bad'; pill.innerHTML = '<span class="dot"></span>Autoline down'; }
   else if (c.dryRun) { pill.className = 'pill warn'; pill.innerHTML = '<span class="dot"></span>Test mode' + (c.autoSync ? '' : ' · manual'); }
@@ -998,7 +1002,12 @@ window.addEventListener('beforeunload', (e) => { if (Object.keys(dirty).length) 
 // ---------- users ----------
 let UL = [];
 function showTemp(name, pw, extra) {
-  $('uTemp').innerHTML = '<div class="tempbox">' + ic('lock') + '<span style="flex:1">Temporary password for <b>' + esc(name) + '</b>: <code id="tpw">' + esc(pw) + '</code><br><span class="small">Copy it now and share it with the person. It is shown only once.' + (extra ? ' ' + esc(extra) : '') + '</span></span><button class="btn sm" id="tpwCopy">' + ic('copy') + 'Copy</button></div>';
+  // Security (VAPT YKA-C-002): when the password was emailed, it is NOT sent to the browser; show a notice instead.
+  if (!pw) {
+    $('uTemp').innerHTML = '<div class="tempbox">' + ic('mail') + '<span style="flex:1">The temporary password for <b>' + esc(name) + '</b> was emailed to them directly. ' + esc(extra || '') + '</span></div>';
+    return;
+  }
+  $('uTemp').innerHTML = '<div class="tempbox">' + ic('lock') + '<span style="flex:1">Temporary password for <b>' + esc(name) + '</b>: <code id="tpw">' + esc(pw) + '</code><br><span class="small">Email is not configured, so copy it now and share it with the person. It is shown only once.' + (extra ? ' ' + esc(extra) : '') + '</span></span><button class="btn sm" id="tpwCopy">' + ic('copy') + 'Copy</button></div>';
   $('tpwCopy').onclick = () => { try { navigator.clipboard.writeText(pw); toast('Copied'); } catch (e) { toast('Select the password and copy it'); } };
 }
 function uErr(m) { const el = $('uErr'); el.textContent = m || ''; el.style.display = m ? 'block' : 'none'; }
@@ -1035,7 +1044,7 @@ $('uForm').onsubmit = async (e) => {
   const r = await uAction({ action: 'add', user: name, email, role: $('uRole').value });
   $('uAdd').disabled = false;
   if (!r) return;
-  showTemp(r.user, r.tempPassword, r.mailed ? 'A welcome email (without the password) was sent to them.' : '');
+  showTemp(r.user, r.tempPassword, r.mailed ? 'They can sign in with it and will be asked to set their own password.' : '');
   $('uName').value = ''; $('uEmail').value = ''; $('uRole').value = 'viewer';
   toast('User ' + r.user + ' added');
   loadUsers(false);

@@ -213,6 +213,14 @@ function build() {
     sessionHours: num('SESSION_HOURS', 12),
     // Optional: only these IPs may open the dashboard (comma separated). Empty = any IP (login still required).
     allowedIps: env('ALLOWED_IPS', '').split(',').map((s) => s.trim()).filter(Boolean),
+    // New user accounts must use one of these email domains (comma separated). Empty = any domain allowed.
+    allowedEmailDomains: env('ALLOWED_EMAIL_DOMAINS', 'almoayyed.com,photonsoftwares.com')
+      .split(',').map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean),
+    // Public base URL used in emails (e.g. https://sync.example.com). Empty = build from the request host.
+    publicBaseUrl: env('PUBLIC_BASE_URL', '').trim().replace(/\/+$/, ''),
+    // Set true once the app is served over HTTPS (behind a TLS reverse proxy): adds Secure to cookies + HSTS.
+    secureCookies: bool('SECURE_COOKIES', false),
+    hsts: bool('HSTS', false),
   },
   };
 }

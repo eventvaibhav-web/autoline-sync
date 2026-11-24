@@ -64,6 +64,21 @@ function passwordProblem(user, pw) {
   return null;
 }
 const validEmail = (e) => /^[^\s@,:]+@[^\s@,:]+\.[^\s@,:]+$/.test(String(e || ''));
+// Security (VAPT YKA-C-004): only approved email domains may be used for accounts.
+function emailDomainAllowed(email) {
+  const domains = config.server.allowedEmailDomains || [];
+  if (!domains.length) return true; // not configured -> allow any (login still required)
+  const at = String(email || '').toLowerCase().lastIndexOf('@');
+  if (at < 0) return false;
+  const dom = String(email).toLowerCase().slice(at + 1);
+  return domains.some((d) => dom === d || dom.endsWith('.' + d));
+}
+// Sign-in URL for emails: PUBLIC_BASE_URL if set (so HTTPS links can be used), else built from the request host.
+function signInUrl(req) {
+  if (config.server.publicBaseUrl) return config.server.publicBaseUrl + '/login';
+  const proto = config.server.secureCookies || (req && req.headers['x-forwarded-proto'] === 'https') ? 'https' : 'http';
+  return `${proto}://${(req && req.headers.host) || 'localhost'}/login`;
+}
 const mask = (e) => String(e).replace(/^(.)(.*)(@.*)$/, (m, a, b, c) => a + '*'.repeat(Math.min(6, b.length)) + c);
 const smtpReady = () => !!(config.alerts.smtp.host && (config.alerts.emailFrom || config.alerts.smtp.user));
 const otpOn = () => config.server.loginOtp !== false;
@@ -100,7 +115,8 @@ function cookies(req) {
   }
   return out;
 }
-const cookie = (name, val, maxAge) => `${name}=${val}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
+// Security (VAPT YKA-C-001): add the Secure attribute once the app is served over HTTPS (SECURE_COOKIES).
+const cookie = (name, val, maxAge) => `${name}=${val}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${config.server.secureCookies ? '; Secure' : ''}`;
 function killSessions(name) {
   for (const [k, s] of SESS) if (s.user.toLowerCase() === String(name).toLowerCase()) SESS.delete(k);
 }
@@ -204,12 +220,23 @@ ${pwField('r', 'repeat', 'Confirm new password', 'new-password')}
 <div class="actions">${u.mustChange ? '' : '<a class="btn sec" href="/" style="display:inline-grid;place-items:center;text-decoration:none">Cancel</a>'}<button class="btn" type="submit">Save</button></div></form>
 ${u.mustChange ? '<form method="post" action="/logout" class="row"><span></span><button class="link">Sign out</button></form>' : ''}`, msg);
 
+// Security headers for the login/verify/change pages (VAPT YKA-C-006), matching the dashboard's.
+const SEC_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+  ...(config.server.hsts ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' } : {}),
+};
 function html(res, code, body, headers = {}) {
-  res.writeHead(code, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', ...headers });
+  res.writeHead(code, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...SEC_HEADERS, ...headers });
   res.end(body);
 }
 function redirect(res, to, headers = {}) {
-  res.writeHead(303, { Location: to, 'Cache-Control': 'no-store', ...headers });
+  res.writeHead(303, { Location: to, 'Cache-Control': 'no-store', ...SEC_HEADERS, ...headers });
   res.end();
 }
 function readForm(req) {
@@ -443,6 +470,9 @@ async function userAction(me, body, req) {
     if (!/^[a-zA-Z0-9._-]{3,32}$/.test(name)) return { error: 'Username: 3-32 letters, numbers, dot, dash or underscore.' };
     if (find(name)) return { error: 'This username already exists.' };
     if (!validEmail(body.email)) return { error: 'Enter a valid email address.' };
+    if (!emailDomainAllowed(body.email)) {
+      return { error: `Email must use an approved domain: ${config.server.allowedEmailDomains.join(', ')}.` };
+    }
     const role = body.role === 'admin' ? 'admin' : 'viewer';
     const temp = tempPassword();
     USERS.push({ user: name, email: String(body.email).trim(), role, ...hashPw(temp), mustChange: true, disabled: false, createdAt: new Date().toISOString(), createdBy: by });
@@ -450,20 +480,21 @@ async function userAction(me, body, req) {
     logger.info('user_added', { user: name, role, by });
     let mailed = false;
     if (smtpReady()) {
-      const link = `http://${req.headers.host || 'localhost'}/login`;
+      const link = signInUrl(req);
       try {
         const winner =
           `<h1 style="font-size:22px;font-weight:600;margin:16px 0 4px;color:#202124;">Welcome to YK Sync</h1>` +
           `<p style="color:#5f6368;font-size:14px;margin:0 0 20px;">An account was created for you on the Autoline &rarr; Shopify sync dashboard.</p>` +
-          `<div style="background:#f0f4f9;border:1px solid #e3e6eb;border-radius:12px;padding:16px 18px;margin:0 0 20px;font-size:14px;">` +
-          `<div style="color:#5f6368;">Username</div><div style="font-weight:600;font-size:16px;margin-top:2px;">${esc(name)}</div></div>` +
+          `<div style="background:#f0f4f9;border:1px solid #e3e6eb;border-radius:12px;padding:16px 18px;margin:0 0 16px;font-size:14px;">` +
+          `<div style="color:#5f6368;">Username</div><div style="font-weight:600;font-size:16px;margin-top:2px;">${esc(name)}</div>` +
+          `<div style="color:#5f6368;margin-top:12px;">Temporary password</div><div style="font-weight:700;font-size:18px;letter-spacing:1px;margin-top:2px;font-family:monospace;">${esc(temp)}</div></div>` +
           `<a href="${esc(link)}" style="display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;font-weight:500;font-size:14px;padding:11px 24px;border-radius:999px;">Open sign-in page</a>` +
-          `<p style="color:#5f6368;font-size:13px;margin:20px 0 0;">Your temporary password will be shared with you separately by <b style="color:#5f6368;">${esc(by)}</b>. At your first sign-in you'll receive a code by email and be asked to set your own password.</p>`;
+          `<p style="color:#5f6368;font-size:13px;margin:20px 0 0;">At your first sign-in you'll receive a one-time code by email and be asked to set your own password. Please change this temporary password immediately.</p>`;
         await sendMail({
           to: String(body.email).trim(),
           fromName: 'Shopify Autoline Sync',
           subject: 'Your YK Sync dashboard account',
-          text: `An account was created for you on the YK Sync (Autoline → Shopify) dashboard.\n\nUsername: ${name}\nSign in: ${link}\n\nYour temporary password will be shared with you separately by ${by}. At the first sign-in you will receive a code by email and you will be asked to set your own password.`,
+          text: `An account was created for you on the YK Sync (Autoline -> Shopify) dashboard.\n\nUsername: ${name}\nTemporary password: ${temp}\nSign in: ${link}\n\nAt the first sign-in you will receive a one-time code by email and be asked to set your own password. Please change this temporary password immediately.`,
           html: emailShell('Your YK Sync account', winner, ''),
         });
         mailed = true;
@@ -471,7 +502,9 @@ async function userAction(me, body, req) {
         logger.warn('user_welcome_mail_failed', { user: name, error: e.message });
       }
     }
-    return { ok: true, user: name, tempPassword: temp, mailed };
+    // Security (VAPT YKA-C-002): the temporary password is NEVER returned in the API response.
+    // It is shown to the admin once, in-app, only when email delivery is not available.
+    return { ok: true, user: name, mailed, tempPassword: mailed ? undefined : temp };
   }
   const u = find(name);
   if (!u) return { error: 'User not found.' };
@@ -483,7 +516,25 @@ async function userAction(me, body, req) {
     saveUsers();
     killSessions(u.user);
     logger.info('user_password_reset', { user: u.user, by });
-    return { ok: true, user: u.user, tempPassword: temp };
+    let mailed = false;
+    if (smtpReady() && u.email) {
+      const link = signInUrl(req);
+      try {
+        const inner =
+          `<h1 style="font-size:22px;font-weight:600;margin:16px 0 4px;color:#202124;">Password reset</h1>` +
+          `<p style="color:#5f6368;font-size:14px;margin:0 0 16px;">Your YK Sync password was reset by an administrator. Use the temporary password below to sign in.</p>` +
+          `<div style="background:#f0f4f9;border:1px solid #e3e6eb;border-radius:12px;padding:16px 18px;margin:0 0 16px;font-size:14px;">` +
+          `<div style="color:#5f6368;">Temporary password</div><div style="font-weight:700;font-size:18px;letter-spacing:1px;margin-top:2px;font-family:monospace;">${esc(temp)}</div></div>` +
+          `<a href="${esc(link)}" style="display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;font-weight:500;font-size:14px;padding:11px 24px;border-radius:999px;">Open sign-in page</a>` +
+          `<p style="color:#5f6368;font-size:13px;margin:20px 0 0;">At your next sign-in you'll receive a one-time code by email and be asked to set a new password.</p>`;
+        await sendMail({ to: u.email, fromName: 'Shopify Autoline Sync', subject: 'Your YK Sync password was reset',
+          text: `Your YK Sync password was reset by an administrator.\n\nTemporary password: ${temp}\nSign in: ${link}\n\nAt your next sign-in you will receive a one-time code by email and be asked to set a new password.`,
+          html: emailShell('Password reset', inner, '') });
+        mailed = true;
+      } catch (e) { logger.warn('user_reset_mail_failed', { user: u.user, error: e.message }); }
+    }
+    // Security (VAPT YKA-C-002): temp password not returned in the response when it can be emailed.
+    return { ok: true, user: u.user, mailed, tempPassword: mailed ? undefined : temp };
   }
   if (a === 'disable' || a === 'enable') {
     if (a === 'disable' && self) return { error: 'You cannot disable your own account.' };

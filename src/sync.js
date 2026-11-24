@@ -701,7 +701,7 @@ async function runSync({ mode = 'scheduled', onlySku = null, trigger = 'schedule
       // every full run (nightly, Refresh all) writes today's report; the nightly one also sends it by alert
       const file = writeReport(ctx.report);
       const txt = Object.entries(counts).map(([k, n]) => `${k}: ${n}`).join(', ') || 'nothing to report';
-      logger.info('daily_report_written', { file, counts });
+      logger.info('daily_report_written', { file: path.basename(file), counts });
       if (mode === 'reconciliation') {
         const notInC1 = ctx.report.filter((r) => r.type === 'NOT_IN_C1');
         const list = notInC1.map((r) => `- ${r.sku} (${r.partNumber}): ${r.detail}`).join('\n');
