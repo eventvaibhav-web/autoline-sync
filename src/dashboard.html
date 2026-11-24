@@ -592,18 +592,21 @@ const PAGES = {
   settings: ['Settings', 'Change how the sync behaves'],
   users: ['Users', 'Who can open this dashboard'],
 };
-let tab = (location.hash || '#overview').slice(1);
+// Remember the open tab across refreshes without putting it in the URL (clean URL + same-tab-on-reload).
+const tabStore = { get() { try { return localStorage.getItem('yk_tab'); } catch { return null; } }, set(v) { try { localStorage.setItem('yk_tab', v); } catch {} } };
+let tab = tabStore.get() || (location.hash || '#overview').slice(1);
 function showTab(name) {
   if (!PAGES[name]) name = 'overview';
   const changed = tab !== name || !document.querySelector('.page.on');
   tab = name;
+  tabStore.set(name);
   document.querySelectorAll('.nav').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
   if (changed) document.querySelectorAll('.page').forEach((s) => s.classList.toggle('on', s.id === 'tab-' + name));
   $('pgTitle').textContent = PAGES[name][0];
   $('pgCrumb').textContent = PAGES[name][0];
   $('pgSub').textContent = PAGES[name][1];
   document.body.classList.remove('nav-open');
-  history.replaceState(null, '', location.pathname + location.search + '#' + name);
+  history.replaceState(null, '', location.pathname + location.search);
   if (changed) window.scrollTo({ top: 0 });
   if (name === 'logs') loadLogs(true);
   if (name === 'alerts') loadAlerts(true);
