@@ -11,3 +11,5 @@ pickup.json.tmp
 *.xlsx
 users.json
 users.json.tmp
+env-file.txt
+.env
