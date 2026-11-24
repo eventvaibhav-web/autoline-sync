@@ -311,6 +311,7 @@ async function processPart(item, state, ctx) {
   snap.productId = v.product.id;
   snap.title = v.product.title;
   snap.vendor = v.product.vendor;
+  if (v.product.image) snap.image = v.product.image;
 
   // 2) Autoline key (franchise code + SKU)
   const key = resolveKey(item, v, ctx);

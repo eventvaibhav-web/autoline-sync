@@ -115,7 +115,7 @@ const SEC_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'Content-Security-Policy':
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https://cdn.shopify.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
   ...(config.server.hsts ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' } : {}),
 };
@@ -298,23 +298,43 @@ const server = http.createServer(async (req, res) => {
       const norm = (s) => String(s || '').trim().toUpperCase();
       const rows = [];
       const syncedFirstParts = new Set();
+      // Index non-bundle component products by their Autoline part number, so each part in a bundle can be
+      // enriched with the component product's name and image (all from existing snapshots, no extra calls).
+      const compByPart = {};
+      for (const s of Object.values(state.parts || {})) {
+        if (s && s.partNumber && !(Array.isArray(s.bundle) && s.bundle.length >= 2)) {
+          compByPart[norm(s.partNumber)] = { title: s.title || null, sku: s.sku || null, image: s.image || null };
+        }
+      }
+      const partLabel = (pn) => (/-(?:O|ODU|OUT|OUTDOOR)$/i.test(pn) ? 'Outdoor' : /-(?:I|IDU|IN|INDOOR)$/i.test(pn) ? 'Indoor' : null);
       // 1) Every synced combined product (snapshot that carries a bundle of 2+ Autoline parts). Works for both
       //    modes and for any number of parts (indoor + outdoor, or more).
       for (const snap of Object.values(state.parts || {})) {
         if (!snap || !Array.isArray(snap.bundle) || snap.bundle.length < 2) continue;
         syncedFirstParts.add(norm(snap.bundle[0].partNumber));
-        const parts = snap.bundle.map((b) => ({ part: norm(b.partNumber), stock: b.totalStockQty, price: b.price1 }));
+        const parts = snap.bundle.map((b, i) => {
+          const pn = norm(b.partNumber);
+          const comp = compByPart[pn] || {};
+          return {
+            part: pn, stock: b.totalStockQty, price: b.price1,
+            label: partLabel(pn) || (snap.bundle.length === 2 ? (i === 0 ? 'Indoor' : 'Outdoor') : 'Part ' + (i + 1)),
+            productTitle: comp.title || null, productSku: comp.sku || null, image: comp.image || null,
+          };
+        });
         const install = Number(snap.installationCharge) || 0;
         const allPriced = parts.every((p) => Number(p.price) > 0);
-        const sub = parts.reduce((a, p) => a + (Number(p.price) || 0), 0) + install;
+        const partsSum = parts.reduce((a, p) => a + (Number(p.price) || 0), 0);
+        const sub = partsSum + install;
         rows.push({
-          sku: snap.sku, title: snap.title || null,
+          sku: snap.sku, title: snap.title || null, image: snap.image || null,
           via: snap.keyVia || (snap.acList ? 'AC list' : 'combined'),
           combined: !snap.acList,
           parts,
-          installCharge: install || null,
+          partsSum: Number(partsSum.toFixed(3)), installCharge: install || null, vatPercent: vat,
+          subtotal: Number(sub.toFixed(3)),
           combinedStock: Math.min(...parts.map((p) => Number(p.stock) || 0)),
           combinedPrice: allPriced && sub > 0 ? Number((sub * (1 + vat / 100)).toFixed(3)) : null,
+          vatAmount: allPriced && sub > 0 ? Number((sub * (vat / 100)).toFixed(3)) : null,
           status: snap.result === 'skipped' ? 'skipped' : (allPriced ? 'ok' : 'part_missing'),
           note: snap.note || '',
         });
@@ -323,9 +343,13 @@ const server = http.createServer(async (req, res) => {
       for (const p of pairs) {
         if (syncedFirstParts.has(norm(p.indoor))) continue;
         rows.push({
-          sku: p.sku || null, title: p.indoorName || p.name || null, via: 'AC list', combined: false,
-          parts: [{ part: norm(p.indoor), stock: null, price: null }, { part: norm(p.outdoor), stock: null, price: null }],
-          installCharge: null, combinedStock: null, combinedPrice: null, status: 'not_synced', note: 'not synced yet',
+          sku: p.sku || null, title: p.indoorName || p.name || null, image: null, via: 'AC list', combined: false,
+          parts: [
+            { part: norm(p.indoor), stock: null, price: null, label: 'Indoor', productTitle: p.indoorName || null, image: null },
+            { part: norm(p.outdoor), stock: null, price: null, label: 'Outdoor', productTitle: p.outdoorName || null, image: null },
+          ],
+          partsSum: null, installCharge: null, vatPercent: vat, subtotal: null,
+          combinedStock: null, combinedPrice: null, vatAmount: null, status: 'not_synced', note: 'not synced yet',
         });
       }
       return send(res, 200, { acMode: config.acMode, configuredPairs: pairs.length, source, savedAt, vatPercent: vat, installPart: config.installationPart, rows });

@@ -214,6 +214,25 @@ tr:last-child td{border-bottom:0}
 .badge .dot{width:6px;height:6px;margin:0;background:currentColor}
 .b-changed,.b-ok{background:var(--ok-bg);color:var(--ok)}.b-unchanged,.b-neutral{background:var(--active);color:var(--ink-2)}
 .b-skipped,.b-warn{background:var(--warn-bg);color:var(--warn)}.b-error,.b-bad{background:var(--bad-bg);color:var(--bad)}.b-info{background:var(--info-bg);color:var(--info)}
+.modal-scrim{position:fixed;inset:0;background:rgba(32,33,36,.5);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;animation:fade .15s var(--ease)}
+.modal{position:relative;background:var(--panel);border-radius:28px;box-shadow:0 24px 60px rgba(0,0,0,.28);width:100%;max-width:560px;max-height:88vh;overflow:auto;animation:pop .2s var(--ease)}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+.modal-x{position:absolute;top:14px;right:14px;width:40px;height:40px;border:0;background:transparent;border-radius:50%;cursor:pointer;color:var(--ink-2);display:flex;align-items:center;justify-content:center}
+.modal-x:hover{background:var(--hover)}
+.modal-body{padding:28px}
+.acm-head{display:flex;gap:16px;align-items:center;margin-bottom:8px}
+.acm-img{width:72px;height:72px;border-radius:16px;object-fit:cover;background:var(--active);flex:none}
+.acm-img.ph{display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.acm-ttl{font-size:20px;font-weight:600;line-height:1.25}
+.acm-sec{margin-top:22px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.acm-part{display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.acm-part:last-child{border-bottom:0}
+.acm-pimg{width:44px;height:44px;border-radius:10px;object-fit:cover;background:var(--active);flex:none}
+.acm-brk{margin-top:10px;background:var(--active);border-radius:16px;padding:14px 16px}
+.acm-brk .r{display:flex;justify-content:space-between;font-size:14px;padding:4px 0}
+.acm-brk .r.tot{border-top:1px solid var(--line-2);margin-top:6px;padding-top:10px;font-weight:600;font-size:16px}
+.chip-lbl{display:inline-block;padding:2px 9px;border-radius:var(--r-pill);font-size:11px;font-weight:600;background:var(--active);color:var(--ink-2)}
 .loc{display:flex;justify-content:space-between;gap:10px;font-size:13px}
 .loc b{font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
 .more{padding:14px;text-align:center;border-top:1px solid var(--line)}
@@ -489,6 +508,10 @@ body.ro .banner .linkbtn{display:none}
   <span id="saveTxt">Unsaved changes</span><div class="sp"></div>
   <button class="btn ghost" id="discard">Discard</button>
   <button class="btn primary" id="save">Save changes</button>
+</div></div>
+<div class="modal-scrim hide" id="acModal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="acmTitle">
+  <button class="modal-x" id="acmClose" aria-label="Close"><svg class="msym"><use href="#m-close"/></svg></button>
+  <div class="modal-body" id="acmBody"></div>
 </div></div>
 <div class="toast" id="toast" role="status"></div>
 
@@ -862,13 +885,14 @@ function renderAc() {
   const q = $('acSearch').value.trim().toLowerCase();
   const rows = (acData.rows || []).filter((x) => !q || [x.sku, x.title, (x.parts || []).map((p) => p.part).join(' ')].join(' ').toLowerCase().includes(q));
   const stk = (v) => (v === null || v === undefined ? '—' : v);
-  setHtml('acBody', rows.map((x) => {
+  acShown = rows;
+  setHtml('acBody', rows.map((x, idx) => {
     const st = AC_STATUS[x.status] || AC_STATUS.not_synced;
     const partsHtml = (x.parts || []).map((p) =>
-      '<div class="loc"><span class="mono small">' + esc(p.part) + '</span><b>' + stk(p.stock) + ' · ' + (p.price === null || p.price === undefined ? '—' : esc(p.price)) + '</b></div>'
+      '<div class="loc"><span class="mono small">' + esc(p.part) + (p.label ? ' <span class="chip-lbl">' + esc(p.label) + '</span>' : '') + '</span><b>' + stk(p.stock) + ' · ' + (p.price === null || p.price === undefined ? '—' : esc(p.price)) + '</b></div>'
     ).join('') + (x.installCharge ? '<div class="small muted">+ install ' + esc(acData.installPart || '') + ' ' + esc(x.installCharge) + '</div>' : '');
-    return '<tr>' +
-      '<td>' + (x.title ? '<div class="strong">' + esc(x.title) + '</div>' : '<span class="muted">—</span>') + (x.sku ? '<div class="small muted mono">' + esc(x.sku) + '</div>' : '') + '<div class="small muted">via ' + esc(x.via || '') + '</div></td>' +
+    return '<tr data-ac="' + idx + '" style="cursor:pointer">' +
+      '<td>' + (x.title ? '<div class="strong">' + esc(x.title) + '</div>' : '<span class="muted">—</span>') + (x.sku ? '<div class="small muted mono">' + esc(x.sku) + '</div>' : '') + '<div class="small muted">via ' + esc(x.via || '') + ' · ' + ic('info', 'xs') + ' details</div></td>' +
       '<td style="min-width:200px">' + partsHtml + '</td>' +
       '<td><b class="qty">' + stk(x.combinedStock) + '</b></td>' +
       '<td>' + (x.combinedPrice !== null && x.combinedPrice !== undefined ? '<span class="qty">' + esc(x.combinedPrice) + '</span>' : '<span class="muted">—</span>') + '</td>' +
@@ -878,6 +902,47 @@ function renderAc() {
   setHtml('acMore', (acData.rows || []).length + ' combined product(s)');
 }
 $('acSearch').oninput = () => renderAc();
+// ----- AC detail modal (Google-style) -----
+let acShown = [];
+function openAcModal(x) {
+  const vat = x.vatPercent != null ? x.vatPercent : (acData && acData.vatPercent) || 0;
+  const num = (v) => (v === null || v === undefined ? '—' : v);
+  const img = (url, cls) => url
+    ? '<img class="' + cls + '" src="' + esc(url) + '" alt="" loading="lazy">'
+    : '<div class="' + cls + ' ph">' + ic('inventory_2') + '</div>';
+  const parts = (x.parts || []).map((p) =>
+    '<div class="acm-part">' + img(p.image, 'acm-pimg') +
+    '<div style="flex:1;min-width:0">' + (p.productTitle ? '<div class="strong">' + esc(p.productTitle) + '</div>' : '') +
+    '<div class="small muted mono">' + esc(p.part) + (p.label ? ' · <span class="chip-lbl">' + esc(p.label) + '</span>' : '') + '</div></div>' +
+    '<div style="text-align:right"><div class="qty">' + (p.price == null ? '—' : esc(p.price)) + '</div><div class="small muted">stock ' + num(p.stock) + '</div></div></div>'
+  ).join('');
+  const brk = x.combinedPrice != null
+    ? '<div class="acm-brk">' +
+        '<div class="r"><span>Parts total</span><b>' + num(x.partsSum) + '</b></div>' +
+        (x.installCharge ? '<div class="r"><span>Installation (' + esc(acData.installPart || '') + ')</span><b>' + esc(x.installCharge) + '</b></div>' : '') +
+        '<div class="r"><span>Subtotal</span><b>' + num(x.subtotal) + '</b></div>' +
+        '<div class="r"><span>VAT ' + vat + '%</span><b>' + num(x.vatAmount) + '</b></div>' +
+        '<div class="r tot"><span>Combined price</span><span>' + esc(x.combinedPrice) + '</span></div>' +
+      '</div>'
+    : '<div class="small muted" style="margin-top:10px">Price not available yet — run a sync (some parts may be missing in Autoline).</div>';
+  const st = AC_STATUS[x.status] || AC_STATUS.not_synced;
+  setHtml('acmBody',
+    '<div class="acm-head">' + img(x.image, 'acm-img') +
+    '<div><div class="acm-ttl" id="acmTitle">' + esc(x.title || x.sku || 'Combined product') + '</div>' +
+    (x.sku ? '<div class="small muted mono">' + esc(x.sku) + '</div>' : '') +
+    '<div style="margin-top:6px"><span class="badge ' + st[0] + '">' + st[1] + '</span> <span class="small muted">via ' + esc(x.via || '') + '</span></div></div></div>' +
+    '<div class="acm-sec">Parts (' + (x.parts || []).length + ')</div>' + parts +
+    '<div class="acm-sec">Price breakdown</div>' + brk +
+    '<div class="acm-sec">Stock</div><div class="small">Combined stock = lowest of all parts: <b class="qty">' + num(x.combinedStock) + '</b></div>' +
+    (x.note ? '<div class="small muted" style="margin-top:12px">' + esc(x.note) + '</div>' : '')
+  );
+  $('acModal').classList.remove('hide');
+}
+function closeAcModal() { $('acModal').classList.add('hide'); }
+$('acBody').onclick = (e) => { const tr = e.target.closest('[data-ac]'); if (tr && acShown[tr.dataset.ac]) openAcModal(acShown[tr.dataset.ac]); };
+$('acmClose').onclick = closeAcModal;
+$('acModal').onclick = (e) => { if (e.target.id === 'acModal') closeAcModal(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('acModal').classList.contains('hide')) closeAcModal(); });
 
 // ---------- logs ----------
 let logDatesLoaded = false;
