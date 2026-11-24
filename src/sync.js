@@ -235,13 +235,15 @@ async function loadBundle(partNumber, rooftopId) {
   const pieces = partNumber.split('+').map((x) => x.trim()).filter(Boolean);
   if (pieces.length < 2) return autoline.loadPart(partNumber, rooftopId);
   const parts = [];
-  for (const pn of pieces) parts.push(await autoline.loadPart(pn, rooftopId));
+  // Keep each piece's own part number with its loaded data (loadPart does not echo it back),
+  // so the bundle records which Autoline part each price/stock belongs to (needed for the UI + matching).
+  for (const pn of pieces) parts.push({ pn, ...(await autoline.loadPart(pn, rooftopId)) });
   const missing = parts.find((x) => !x.found);
-  if (missing) return { ...missing, errorMessage: `${missing.partNumber || ''} ${missing.errorMessage || 'not found'}`.trim() };
+  if (missing) return { ...missing, errorMessage: `${missing.pn || ''} ${missing.errorMessage || 'not found'}`.trim() };
   return {
     ...parts[0],
     partNumber,
-    bundle: parts.map((x) => ({ partNumber: x.partNumber, price1: x.price1, totalStockQty: x.totalStockQty })),
+    bundle: parts.map((x) => ({ partNumber: x.pn, price1: x.price1, totalStockQty: x.totalStockQty })),
     totalStockQty: Math.min(...parts.map((x) => Number(x.totalStockQty) || 0)),
     price1: parts.every((x) => x.price1 > 0) ? parts.reduce((a, x) => a + Number(x.price1), 0) : 0,
     specialPrice: 0,

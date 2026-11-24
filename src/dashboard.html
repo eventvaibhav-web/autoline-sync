@@ -594,7 +594,9 @@ const PAGES = {
 };
 // Remember the open tab across refreshes without putting it in the URL (clean URL + same-tab-on-reload).
 const tabStore = { get() { try { return localStorage.getItem('yk_tab'); } catch { return null; } }, set(v) { try { localStorage.setItem('yk_tab', v); } catch {} } };
-let tab = tabStore.get() || (location.hash || '#overview').slice(1);
+// Tab comes from the URL path (/ac, /products) so links are shareable; else the last-used tab (refresh-safe); else overview.
+function tabFromPath() { const p = location.pathname.replace(/^\/+/, '').replace(/\/+$/, ''); if (!p) return 'overview'; return PAGES[p] ? p : null; }
+let tab = tabFromPath() || tabStore.get() || 'overview';
 function showTab(name) {
   if (!PAGES[name]) name = 'overview';
   const changed = tab !== name || !document.querySelector('.page.on');
@@ -606,7 +608,7 @@ function showTab(name) {
   $('pgCrumb').textContent = PAGES[name][0];
   $('pgSub').textContent = PAGES[name][1];
   document.body.classList.remove('nav-open');
-  history.replaceState(null, '', location.pathname + location.search);
+  history.replaceState(null, '', '/' + (name === 'overview' ? '' : name) + location.search);
   if (changed) window.scrollTo({ top: 0 });
   if (name === 'logs') loadLogs(true);
   if (name === 'alerts') loadAlerts(true);

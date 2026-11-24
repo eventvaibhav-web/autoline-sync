@@ -9,6 +9,8 @@ const { config, validate, getSettings, updateSettings, overridesActive } = requi
 const shopify = require('./shopify');
 const pickup = require('./pickup');
 const acpairs = require('./acpairs');
+// Dashboard tab names that are also valid URL paths (e.g. /products, /ac) for shareable, refresh-safe links.
+const TAB_PATHS = new Set(['overview', 'products', 'ac', 'reports', 'pickup', 'alerts', 'logs', 'settings', 'users']);
 const { logger, readLogFile, listLogDates, cleanupOldLogs } = require('./logger');
 const { runSync, isRunning, loadState, readPartsList, listReports, readReport } = require('./sync');
 
@@ -200,7 +202,8 @@ const server = http.createServer(async (req, res) => {
   // Viewers can look, not change anything
   if (req.method === 'POST' && me.role !== 'admin') return send(res, 403, { error: 'Your account is read-only. Ask an admin.' });
   try {
-    if (req.method === 'GET' && url.pathname === '/') return send(res, 200, dashboardHtml(), 'text/html');
+    // Dashboard is served at "/" and at a path per tab (/products, /ac, ...) so tab URLs are shareable.
+    if (req.method === 'GET' && (url.pathname === '/' || TAB_PATHS.has(url.pathname.slice(1)))) return send(res, 200, dashboardHtml(), 'text/html');
 
     if (req.method === 'GET' && url.pathname === '/api/users') {
       if (me.role !== 'admin') return send(res, 403, { error: 'Admins only' });
