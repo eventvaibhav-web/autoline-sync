@@ -132,10 +132,14 @@ function baseKey(item, v, ctx) {
 function resolveKey(item, v, ctx) {
   const key = baseKey(item, v, ctx);
   if (!key.partNumber) return key;
-  if (key.partNumber.includes('+')) return { ...key, bundle: true };
-  // AC from the business pairs list (indoor -> outdoor): one product = indoor + outdoor + installation
-  const outdoor = acpairs.outdoorFor(key.partNumber);
-  if (outdoor) return { ...key, partNumber: `${key.partNumber}+${outdoor}`, via: `${key.via} + outdoor (AC list)`, bundle: true, acList: true };
+  // Combined product: parts given explicitly (e.g. autoline.part_number = "A+B+C"). Always honoured.
+  if (key.partNumber.includes('+')) return { ...key, bundle: true, combined: true };
+  // AC from the business pairs list (indoor -> outdoor): one product = indoor + outdoor + installation.
+  // Only when AC_MODE allows pairing (pair | both); in "combined" mode you declare parts explicitly instead.
+  if (config.acMode === 'pair' || config.acMode === 'both') {
+    const outdoor = acpairs.outdoorFor(key.partNumber);
+    if (outdoor) return { ...key, partNumber: `${key.partNumber}+${outdoor}`, via: `${key.via} + outdoor (AC list)`, bundle: true, acList: true };
+  }
   const tags = ((v.product && v.product.tags) || []).map((t) => t.toLowerCase());
   if (config.installationTag && tags.includes(config.installationTag) && /-I$/i.test(key.partNumber)) {
     const pn = key.partNumber;

@@ -385,13 +385,13 @@ body.ro .banner .linkbtn{display:none}
 
     <section class="page" id="tab-ac">
       <div class="toolbar">
-        <div class="searchbox"><svg class="msym sm"><use href="#m-search"/></svg><input class="input" id="acSearch" placeholder="Search indoor/outdoor part, SKU, product"></div>
+        <div class="searchbox"><svg class="msym sm"><use href="#m-search"/></svg><input class="input" id="acSearch" placeholder="Search part number, SKU, product"></div>
       </div>
       <div id="acInfo" class="banner info hide"></div>
       <div class="card">
         <div class="tablewrap">
           <table>
-            <thead><tr><th>Indoor part</th><th>Outdoor part</th><th>Product (indoor)</th><th>Stock (In / Out → Combined)</th><th>Combined price</th><th>Status</th></tr></thead>
+            <thead><tr><th>Product</th><th>Parts (stock · price)</th><th>Combined stock</th><th>Combined price</th><th>Status</th></tr></thead>
             <tbody id="acBody"></tbody>
           </table>
         </div>
@@ -561,7 +561,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePmenu
 const PAGES = {
   overview: ['Overview', 'Stock and price sync from Autoline'],
   products: ['Products', 'Every Shopify product with the sync tag'],
-  ac: ['Split AC', 'Indoor + outdoor sold as one product (indoor + outdoor + installation + VAT)'],
+  ac: ['Split AC', 'Combined products: several Autoline parts sold as one (price = sum of parts + installation + VAT)'],
   reports: ['Reports', 'Daily business reports and CSV downloads'],
   pickup: ['Pickup checks', 'Store pickup orders vs outlet stock in Autoline'],
   alerts: ['Alerts sent', 'Email alerts sent by the app'],
@@ -843,40 +843,39 @@ $('syncAll').onclick = async () => {
 
 // ---------- split AC ----------
 let acData = null;
-const AC_STATUS = { ok: ['b-ok', 'OK'], outdoor_missing: ['b-warn', 'Outdoor missing'], not_synced: ['b-neutral', 'Not synced yet'] };
+const AC_STATUS = { ok: ['b-ok', 'OK'], part_missing: ['b-warn', 'Part missing'], skipped: ['b-skipped', 'Skipped'], not_synced: ['b-neutral', 'Not synced yet'] };
+const AC_MODE_LABEL = { pair: 'Pair list (indoor + outdoor)', combined: 'Combined product (parts in metafield)', both: 'Both methods' };
 async function loadAcPairs() {
-  if (!acData) setHtml('acBody', skRows(4, 6));
+  if (!acData) setHtml('acBody', skRows(3, 5));
   const r = await api('/api/ac-pairs');
-  if (r.error) { setHtml('acBody', emptyRow(6, 'circle-x', r.error)); return; }
+  if (r.error) { setHtml('acBody', emptyRow(5, 'circle-x', r.error)); return; }
   acData = r;
-  const n = $('nAc'); n.textContent = r.configured || 0; n.classList.toggle('hide', !r.configured);
+  const n = $('nAc'); n.textContent = (r.rows || []).length; n.classList.toggle('hide', !(r.rows || []).length);
   renderAc();
 }
 function renderAc() {
   if (!acData) return;
   const info = $('acInfo');
-  if (!acData.configured) {
-    info.className = 'banner info';
-    info.innerHTML = ic('info-circle') + '<span>No AC pairs configured yet. Apply the AC list with <b>npm run ac-pairs -- "&lt;file&gt;.xlsx" --apply</b>, then run a sync.</span>';
-  } else {
-    info.className = 'banner info';
-    info.innerHTML = ic('info-circle') + '<span>' + acData.configured + ' AC pair(s). Each is sold as ONE product (the indoor one): price = indoor + outdoor + ' + esc(acData.installPart || 'installation') + ' + ' + (acData.vatPercent || 0) + '% VAT; stock = the lower of indoor and outdoor.' + (acData.savedAt ? ' List saved ' + tShort(acData.savedAt) + '.' : '') + '</span>';
-  }
+  const mode = AC_MODE_LABEL[acData.acMode] || acData.acMode;
+  info.className = 'banner info';
+  info.innerHTML = ic('info-circle') + '<span>Mode: <b>' + esc(mode) + '</b>. A combined product is sold as one item; its price = sum of its parts + ' + esc(acData.installPart || 'installation') + ' + ' + (acData.vatPercent || 0) + '% VAT, and its stock = the lowest of its parts. Component products stay listed separately.' + (acData.configuredPairs ? ' ' + acData.configuredPairs + ' pair(s) in the AC list.' : '') + '</span>';
   const q = $('acSearch').value.trim().toLowerCase();
-  const rows = (acData.rows || []).filter((x) => !q || [x.indoor, x.outdoor, x.sku, x.title, x.indoorName, x.outdoorName].join(' ').toLowerCase().includes(q));
+  const rows = (acData.rows || []).filter((x) => !q || [x.sku, x.title, (x.parts || []).map((p) => p.part).join(' ')].join(' ').toLowerCase().includes(q));
   const stk = (v) => (v === null || v === undefined ? '—' : v);
   setHtml('acBody', rows.map((x) => {
     const st = AC_STATUS[x.status] || AC_STATUS.not_synced;
+    const partsHtml = (x.parts || []).map((p) =>
+      '<div class="loc"><span class="mono small">' + esc(p.part) + '</span><b>' + stk(p.stock) + ' · ' + (p.price === null || p.price === undefined ? '—' : esc(p.price)) + '</b></div>'
+    ).join('') + (x.installCharge ? '<div class="small muted">+ install ' + esc(acData.installPart || '') + ' ' + esc(x.installCharge) + '</div>' : '');
     return '<tr>' +
-      '<td class="mono">' + esc(x.indoor) + (x.indoorName ? '<div class="small muted">' + esc(x.indoorName) + '</div>' : '') + '</td>' +
-      '<td class="mono">' + esc(x.outdoor) + (x.outdoorName ? '<div class="small muted">' + esc(x.outdoorName) + '</div>' : '') + '</td>' +
-      '<td>' + (x.title ? '<div class="strong">' + esc(x.title) + '</div>' : '<span class="muted">—</span>') + (x.sku ? '<div class="small muted mono">' + esc(x.sku) + '</div>' : '') + '</td>' +
-      '<td><span class="qty">' + stk(x.indoorStock) + '</span> / <span class="qty">' + stk(x.outdoorStock) + '</span> → <b class="qty">' + stk(x.combinedStock) + '</b></td>' +
-      '<td>' + (x.combinedPrice !== null && x.combinedPrice !== undefined ? '<span class="qty">' + esc(x.combinedPrice) + '</span>' : '<span class="muted">—</span>') + (x.installCharge ? '<div class="small muted">incl. install ' + esc(x.installCharge) + '</div>' : '') + '</td>' +
+      '<td>' + (x.title ? '<div class="strong">' + esc(x.title) + '</div>' : '<span class="muted">—</span>') + (x.sku ? '<div class="small muted mono">' + esc(x.sku) + '</div>' : '') + '<div class="small muted">via ' + esc(x.via || '') + '</div></td>' +
+      '<td style="min-width:200px">' + partsHtml + '</td>' +
+      '<td><b class="qty">' + stk(x.combinedStock) + '</b></td>' +
+      '<td>' + (x.combinedPrice !== null && x.combinedPrice !== undefined ? '<span class="qty">' + esc(x.combinedPrice) + '</span>' : '<span class="muted">—</span>') + '</td>' +
       '<td><span class="badge ' + st[0] + '">' + st[1] + '</span>' + (x.note ? '<div class="small muted">' + esc(x.note) + '</div>' : '') + '</td>' +
       '</tr>';
-  }).join('') || emptyRow(6, 'search', acData.configured ? 'No AC pairs match.' : 'No AC pairs configured yet.'));
-  setHtml('acMore', (acData.rows || []).length + ' AC pair(s)');
+  }).join('') || emptyRow(5, 'search', (acData.rows || []).length ? 'No combined products match.' : 'No combined products yet. Set up an AC list (pair mode) or a combined product with its parts in the autoline.part_number metafield, then run a sync.'));
+  setHtml('acMore', (acData.rows || []).length + ' combined product(s)');
 }
 $('acSearch').oninput = () => renderAc();
 

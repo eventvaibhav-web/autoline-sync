@@ -105,6 +105,11 @@ function build() {
   partKeyMode: env('PART_KEY_MODE', 'franchise').toLowerCase(),
   // false = do not write stock to outlet locations (Manama / Gudebiya); pickup re-check still reads them
   outletStockSync: bool('OUTLET_STOCK_SYNC', true),
+  // How AC / combined products are formed:
+  //  pair     = ac-pairs.json auto-pairs indoor -> outdoor on the indoor product
+  //  combined = separate combined product declares its parts via the autoline.part_number metafield ("A+B+C")
+  //  both     = both methods active
+  acMode: (env('AC_MODE', 'both').trim().toLowerCase() || 'both'),
   descriptionSync: bool('DESCRIPTION_SYNC_ENABLED', false),
   // price1 = selling price is Price1 only (compare-at not touched)
   // price1_special = specialPrice > 0 -> price=specialPrice, compare-at=price1
@@ -241,6 +246,7 @@ const EDITABLE = {
   OUTLET_ROOFTOPS: { type: 'text', group: 'Autoline', label: 'Pickup outlet rooftops' },
   OUTLET_STOCK_SYNC: { type: 'bool', group: 'Autoline', label: 'Write outlet stock (Manama / Gudebiya) to Shopify' },
   PART_KEY_MODE: { type: 'select', group: 'Parts', label: 'Autoline part number', options: { franchise: 'Franchise code + SKU', sku: 'SKU is the Autoline part number' } },
+  AC_MODE: { type: 'select', group: 'Parts', label: 'AC / combined products', options: { pair: 'Pair list (indoor product + outdoor)', combined: 'Combined product (parts in metafield)', both: 'Both methods' } },
   STOCK_SOURCE: { type: 'select', group: 'Autoline', label: 'Stock quantity', options: { total: 'totalStockQty', prime1: 'Prime1 only', 'prime1-3': 'Prime1 + 2 + 3' } },
   SAFETY_BUFFER: { type: 'text', group: 'Autoline', label: 'Safety buffer (ROOFTOP=number)' },
   PRICE_MODE: { type: 'select', group: 'Price & product', label: 'Selling price', options: { price1: 'Price1 only', price1_special: 'Price1 + specialPrice promo' } },
@@ -319,6 +325,7 @@ function validate({ needShopify = true, needServer = false } = {}, cfg = config)
   if (!['total', 'prime1', 'prime1-3'].includes(config.stockSource))
     errs.push('STOCK_SOURCE must be one of: total, prime1, prime1-3');
   if (!['franchise', 'sku'].includes(config.partKeyMode)) errs.push('PART_KEY_MODE must be franchise or sku');
+  if (!['pair', 'combined', 'both'].includes(config.acMode)) errs.push('AC_MODE must be pair, combined or both');
   if (!['price1', 'price1_special'].includes(config.priceMode)) errs.push('PRICE_MODE must be price1 or price1_special');
   if (!['csv', 'tag'].includes(config.partsSource)) errs.push('PARTS_SOURCE must be csv or tag');
   if (!['zero', 'draft'].includes(config.blockSaleAction)) errs.push('BLOCK_SALE_ACTION must be zero or draft');
