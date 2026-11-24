@@ -1,0 +1,74 @@
+# ===== Copy this file to ".env" and fill in the values =====
+
+# ---------- Autoline ----------
+AUTOLINE_BASE_URL=https://ykacentralapi.almoayyed.com.bh/prod/api/v1
+# Endpoint path from IT (12 Nov 2026): .../parts/shopify/LoadPartsStockRecord
+AUTOLINE_PARTS_PATH=parts/shopify
+AUTOLINE_SESSION_ID=12345
+# Main rooftop: Price1, blockSale and description come from here (business: SOC1P_PH)
+AUTOLINE_ROOFTOP_ID=SO01P_PH
+AUTOLINE_USER_ID=ADMIN-YK
+# OPEN QUESTION 3: if IT gives an API key/token, put extra headers here as JSON
+# Example: AUTOLINE_EXTRA_HEADERS={"x-api-key":"abc123"}
+AUTOLINE_EXTRA_HEADERS=
+AUTOLINE_TIMEOUT_MS=20000
+
+# Which Autoline quantity is used as stock (business: total)
+#   total     = totalStockQty
+#   prime1    = quantity_1 (Prime1) only
+#   prime1-3  = quantity_1 + quantity_2 + quantity_3
+STOCK_SOURCE=total
+
+# Selling price (business: Price1)
+#   price1          = price = Price1, compare-at price is not touched
+#   price1_special  = if specialPrice > 0: price = specialPrice, compare-at = Price1
+PRICE_MODE=price1
+
+# Description sync stays OFF until business approves (true/false)
+DESCRIPTION_SYNC_ENABLED=false
+
+# ---------- Shopify ----------
+SHOPIFY_STORE=ykalmoayyed-test-store.myshopify.com
+# Option A (new, 2026+): app made in Dev Dashboard -> Settings -> Client ID / Client secret
+# The app gets a 24-hour token itself and refreshes it automatically.
+SHOPIFY_CLIENT_ID=
+SHOPIFY_CLIENT_SECRET=
+# Option B (only if an OLD legacy custom app already exists): its shpat_ token. Leave empty if using Option A.
+SHOPIFY_ADMIN_TOKEN=YAHAN_APNA_SHPAT_TOKEN_DAALO
+SHOPIFY_API_VERSION=2025-07
+# Which Autoline rooftop fills which Shopify location (stock). Comma separated ROOFTOP=location id.
+# Get location ids with: npm run test-shopify
+#   SOC1P_PH -> online / delivery location (create "Online Warehouse" in Shopify if allowed)
+#   SOE4P_PH -> Manama Showroom (pickup)      SOE3P_PH -> Gudaibiya Showroom (pickup)
+LOCATION_STOCK_MAP=SOE4P_PH=gid://shopify/Location/84407025889
+# Pickup outlets: delivery-only parts get stock 0 here, so pickup is not offered for them
+OUTLET_ROOFTOPS=SOE4P_PH
+# Products with this Shopify tag are delivery-only (or put Y in the delivery_only column of parts-list.csv)
+DELIVERY_ONLY_TAG=delivery-only
+# Only used if LOCATION_STOCK_MAP is empty: single location for the main rooftop
+SHOPIFY_LOCATION_ID=
+
+# ---------- Sync ----------
+SYNC_INTERVAL_MINUTES=15
+RECONCILIATION_TIME=02:00
+TIMEZONE=Asia/Bahrain
+CONCURRENCY=3
+# true = only log what WOULD change, write nothing to Shopify (good for first test)
+DRY_RUN=true
+PARTS_LIST_FILE=parts-list.csv
+
+# ---------- Alerts ----------
+OUTAGE_ALERT_MINUTES=60
+# Optional: Teams / Slack / Google Chat incoming-webhook URL (receives {"text": "..."})
+ALERT_WEBHOOK_URL=
+ALERT_COOLDOWN_MINUTES=60
+
+# ---------- Logs ----------
+LOG_RETENTION_DAYS=365
+
+# ---------- Dashboard ----------
+PORT=3000
+# 127.0.0.1 = only this computer can open the dashboard. Use 0.0.0.0 on a server behind a firewall.
+HOST=127.0.0.1
+# Long random password for the dashboard: http://localhost:3000/?token=ADMIN_TOKEN
+ADMIN_TOKEN=YkSync-2026-Bahrain-x7k9
