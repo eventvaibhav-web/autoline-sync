@@ -112,6 +112,8 @@ async function loadFranchiseIndex(ctx) {
 
 function baseKey(item, v, ctx) {
   if (v.partNumberOverride) return { partNumber: v.partNumberOverride, via: 'variant_metafield' };
+  // Product-level override too (easier to set in Shopify for single-variant products, e.g. combined AC products)
+  if (v.product.partNumberOverride) return { partNumber: v.product.partNumberOverride, via: 'product_metafield' };
   if (item.partNumber) return { partNumber: item.partNumber, via: 'list' };
   const sku = v.sku || item.sku;
   if (config.partKeyMode === 'sku') return sku ? { partNumber: String(sku).trim().toUpperCase(), via: 'sku' } : { partNumber: null, reason: 'empty SKU' };

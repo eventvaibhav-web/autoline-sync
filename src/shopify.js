@@ -148,6 +148,7 @@ const VARIANT_FIELDS = `
   product {
     id title status descriptionHtml tags vendor productType
     franchiseCode: metafield(namespace: "autoline", key: "franchise_code") { value }
+    partNumberMf: metafield(namespace: "autoline", key: "part_number") { value }
     deliveryOnlyMf: metafield(namespace: "ehastock", key: "delivery_only") { value }
   }`;
 
@@ -178,6 +179,7 @@ function mapVariant(v) {
       vendor: p.vendor || '',
       productType: p.productType || '',
       franchiseCode: p.franchiseCode ? String(p.franchiseCode.value || '').trim().toUpperCase() : '',
+      partNumberOverride: p.partNumberMf ? String(p.partNumberMf.value || '').trim().toUpperCase() : '',
       deliveryOnlyMf: p.deliveryOnlyMf ? p.deliveryOnlyMf.value : null,
     },
   };
