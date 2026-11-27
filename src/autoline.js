@@ -98,7 +98,7 @@ async function searchParts(searchText, rooftopId) {
   return post('PartsStockSearch', { SearchText: searchText }, rooftopId);
 }
 
-// Stock for the store, based on STOCK_SOURCE (open question 2).
+// Stock for the store, based on STOCK_SOURCE.
 function pickStock(part) {
   const L = part.locations;
   switch (config.stockSource) {

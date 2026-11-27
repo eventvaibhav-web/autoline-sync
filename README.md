@@ -1,130 +1,79 @@
-# Autoline → Shopify Stock Sync
+# Autoline → Shopify Sync
 
-Autoline se stock aur Price1 (aur approval ke baad description) lekar Shopify mein inventory aur price
-update karta hai. Har Shopify location ka stock uske apne Autoline RooftopId se aata hai.
-Sirf `parts-list.csv` wale parts. Server par chalane ke liye: **DEPLOY.md**.
-Koi external npm package nahi — sirf Node.js 18+ chahiye.
+A dependency-free Node.js service that keeps Shopify in line with Autoline:
 
-## Rules jo app follow karta hai
-| Situation | Kya hota hai |
+- **Stock** per Shopify location (from the mapped Autoline rooftops)
+- **Price** (Price1, optional special price, VAT added)
+- **Product status** (blocked parts are zeroed or set to Draft)
+- **Split AC products** (indoor + outdoor + installation sold as one product)
+- **Pickup order re-check** (outlet stock is verified when a pickup order arrives)
+- **Dashboard** with sign-in (email OTP), products, pickup checks, alerts, logs, settings and user management
+
+Requires Node.js 18 or newer. No npm packages are needed.
+
+## Quick start
+
+```bash
+cp .env.example .env                     # then fill in the values
+npm run test-autoline -- <PART_NUMBER>   # check the Autoline connection
+npm run test-shopify                     # check the Shopify token, currency and locations
+npm start                                # dashboard + scheduler on http://localhost:3000
+```
+
+Use `DRY_RUN=true` for the first runs: the sync only logs what it would change and writes nothing to Shopify.
+
+## Configuration
+
+All settings live in `.env` (see `.env.example`, every option is commented). Some can also be changed
+from the dashboard (Settings page); secrets, URLs, port and host stay in `.env` only.
+
+Required before the first start:
+
+| Setting | Purpose |
 |---|---|
-| Price (`PRICE_MODE=price1`, business decision) | price = Price1 (main rooftop SOC1P_PH se), compare-at nahi badalta |
-| (`PRICE_MODE=price1_special`) | specialPrice > 0 ho to price = specialPrice, compare-at = Price1 |
-| Stock | `LOCATION_STOCK_MAP`: har location = us RooftopId ka totalStockQty (SOE4P_PH → Manama, SOE3P_PH → Gudaibiya) |
-| Delivery-only part (CSV mein `Y` ya Shopify tag `delivery-only`) | outlet locations par stock 0, taaki pickup option na aaye |
-| Kisi ek outlet rooftop ka Autoline down | sirf us location ka stock unchanged, baaki update |
-| price1 = 0 / khali | price change nahi, warning log |
-| Negative stock | 0 set, warning log |
-| blockSale = "Y" | product DRAFT |
-| blockSale wapas "N" | sirf wahi product jo app ne DRAFT kiya tha, pehle wale status par wapas |
-| Part list se hata | product DRAFT (delete kabhi nahi) |
-| Part Autoline mein nahi mila | Shopify unchanged, skip log |
-| SKU Shopify mein nahi / duplicate | skip / error log |
-| "Track quantity" off | inventory setting nahi badalti, skip log |
-| Autoline down | Shopify unchanged; 60 min baad alert, wapas aane par "recovered" alert |
-| Description | sirf `DESCRIPTION_SYNC_ENABLED=true` par |
-
-Har change / skip / error `logs/sync-YYYY-MM-DD.jsonl` mein (365 din rakhe jaate hain).
-Store ki koi aur setting / data app nahi chhoota.
-
-## Setup (Windows)
-1. **Node.js LTS** install karo (nodejs.org). PowerShell mein `node -v` → v18 ya upar.
-2. Zip ko `C:\autoline-sync` mein extract karo. PowerShell: `cd C:\autoline-sync`
-3. `npm install` (koi dependency nahi, bas check ho jaata hai)
-4. `.env.example` ko copy karke `.env` banao: `copy .env.example .env` aur Notepad/VS Code mein bharo.
-5. **Autoline test** (RooftopId confirm karne ke liye):
-   ```
-   npm run test-autoline -- NKUHD65SLEDT
-   ```
-   (Ya bina Node: `powershell -ExecutionPolicy Bypass -File scripts\test-autoline.ps1 NKUHD65SLEDT`)
-   `found: true (SUCCESS)` aana chahiye.
-6. **Shopify custom app**: Admin → Settings → Apps and sales channels → Develop apps → Create an app →
-   Configure Admin API scopes: `read_products, write_products, read_inventory, write_inventory, read_locations`
-   → Install → Admin API access token copy karke `.env` mein `SHOPIFY_ADMIN_TOKEN` mein daalo.
-7. **Shopify test** (read-only):
-   ```
-   npm run test-shopify -- UHD65SLEDT
-   ```
-   Currency BHD dikhni chahiye. Agar ek se zyada active location hai to jo location id dikhe use
-   `.env` mein `SHOPIFY_LOCATION_ID` mein daalo.
-8. Pehli baar `.env` mein `DRY_RUN=true` rakho, phir:
-   ```
-   npm run sync-once
-   ```
-   Logs mein dikhega kya change HOGA (Shopify mein kuch nahi likha jaata). Sahi lage to `DRY_RUN=false`
-   karke dobara `npm run sync-once`. Shopify admin mein stock/price check karo.
-9. **Dashboard + scheduler**: `npm start` → browser mein `http://localhost:3000/?token=ADMIN_TOKEN`.
-   "Refresh all now" aur har part ka "Refresh" button test karo. Har 15 min sync aur raat 2 baje
-   (Bahrain time) reconciliation chalta hai, jab tak `npm start` chal raha hai.
-10. Business list se aur parts `parts-list.csv` mein jodo (format: `shopify_sku,autoline_part_number,delivery_only`,
-    jahan delivery_only = Y ya N).
-    Restart ki zaroorat nahi — agla sync naya list padhta hai.
-
-## Design-doc features (v1.1)
-| Feature | Setting |
-|---|---|
-| Parts list from Shopify tag `autoline-sync` (instead of CSV) | `PARTS_SOURCE=tag` |
-| Autoline key = franchise code + SKU (product metafield `autoline.franchise_code` → brand in metaobject `autoline_franchise` / `FRANCHISE_MAP` → else UNMAPPED) | `FRANCHISE_METAOBJECT_TYPE`, `FRANCHISE_MAP` |
-| blockSale = Y → stock 0 at all locations + tag `autoline-blocked` (reversed on N) | `BLOCK_SALE_ACTION=zero` (or `draft`) |
-| Delivery-only by tag / product type; outlet stock 0 or inventory deactivated; metafield `ehastock.delivery_only` | `DELIVERY_ONLY_TAG`, `DELIVERY_ONLY_PRODUCT_TYPES`, `DELIVERY_ONLY_ACTION` |
-| Variant metafields `autoline.sync_status` (OK / NOT_FOUND / UNMAPPED / BLOCKED) and `autoline.last_synced_at` | `STATUS_METAFIELDS=true` |
-| Daily business report (UNMAPPED, NOT_FOUND, BLOCKED, DUPLICATE_SKU, PRICE_SWING, SUPERSEDED, NOT_IN_SHOPIFY) as CSV, download from dashboard, summary alert | nightly reconciliation |
-| Price swing flag | `PRICE_SWING_PERCENT=50` |
-| Safety buffer per rooftop | `SAFETY_BUFFER=SOE4P_PH=1` |
-| Retries 1 / 4 / 16 seconds | `AUTOLINE_RETRY_DELAYS=1,4,16` |
-
-**Shopify scopes needed now:** `read_products, write_products, read_inventory, write_inventory, read_locations, read_metaobjects`.
-
-## Dashboard settings (v1.2)
-Dashboard → **Settings** tab: toggles and fields for dry run, description sync, price rule, parts source, franchise map,
-locations, blockSale action, delivery-only, intervals and alerts. Changes apply immediately (no restart) and are saved
-in `settings.json` (next to `state.json`). A value changed in the dashboard wins over `.env`; "reset to .env" removes it.
-Secrets (Shopify token, ADMIN_TOKEN), URLs, port and host stay in `.env` only. Every change is logged (`settings_changed`).
-
-## Pickup order re-check (v1.3, design doc BR-08)
-When an order with local pickup is created, Shopify calls `/webhooks/orders-create`. The app reads the outlet stock
-again from Autoline (SOE4P_PH / SOE3P_PH) for every line. If the outlet is short, the order gets the tag
-`pickup-stock-alert` and an alert is sent. Only order id/number, pickup location and SKU/qty are stored (`pickup.json`).
-- Needs a public HTTPS URL (Render/server) and `SHOPIFY_WEBHOOK_SECRET` (the app's API secret key) in `.env`.
-- Shopify app scopes: add `read_orders`, `write_orders`, `read_merchant_managed_fulfillment_orders`.
-- Register: `npm run register-webhook -- https://YOUR-APP-URL`
-- Check one order by hand (works on the laptop too): `npm run recheck-order -- 1001` or dashboard → Overview → Pickup order checks.
-
-## "Delivery only" label
-`deploy/theme/delivery-only-badge.liquid` → paste into a Custom Liquid block on the product page (instructions inside the file).
+| `AUTOLINE_BASE_URL`, `AUTOLINE_USER_ID`, `AUTOLINE_SESSION_ID`, `AUTOLINE_ROOFTOP_ID` | Autoline API access and the main rooftop |
+| `SHOPIFY_STORE` + (`SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`, or `SHOPIFY_ADMIN_TOKEN`) | Shopify Admin API access |
+| `LOCATION_STOCK_MAP` | Which Autoline rooftop fills which Shopify location |
+| `ADMIN_TOKEN` | Long random string, not the example value |
 
 ## Commands
-| Command | Kaam |
+
+| Command | What it does |
 |---|---|
-| `npm start` | dashboard + 15-min sync + nightly reconciliation |
-| `npm run sync-once` | ek baar full sync |
-| `npm run sync-part -- UHD65SLEDT` | ek SKU refresh |
-| `npm run reconcile` | reconciliation abhi chalao |
-| `npm run test-autoline -- <PART>` | Autoline raw response dekho (main rooftop) |
-| `npm run test-autoline -- <PART> --rooftop SOE4P_PH` | kisi aur rooftop ka response |
-| `npm run test-autoline -- --search UHD65` | PartsStockSearch |
-| `npm run test-shopify -- <SKU>` | Shopify connection + SKU check (read-only) |
+| `npm start` | Start the dashboard and the scheduler |
+| `npm run sync-once` | One full sync |
+| `npm run sync-part -- <SKU>` | Refresh a single SKU |
+| `npm run reconcile` | Full reconciliation (also runs nightly) |
+| `npm run test-autoline -- <PART>` | Test the Autoline API (`--search <text>` to search) |
+| `npm run test-shopify [-- <SKU>]` | Test the Shopify connection |
+| `npm run find-parts [-- --apply]` | Find the right Autoline part number for skipped products |
+| `npm run apply-category -- <file> [--apply]` | Tag products MDA (delivery only) or SDA (pickup + delivery) |
+| `npm run ac-pairs -- <file.xlsx> [--apply]` | Save the AC indoor → outdoor pairs |
+| `npm run clear-outlets [-- --apply]` | One-time: set outlet stock to 0 (preview without `--apply`) |
+| `npm run register-webhook -- <https://public-url>` | Register the Shopify `orders/create` webhook |
+| `npm run recheck-order -- <order number>` | Re-check one pickup order |
+| `npm run test-email -- <address>` | Send a test email |
 
-## Alerts
-`ALERT_WEBHOOK_URL` mein Teams / Slack / Google Chat incoming webhook daalo — `{"text": "..."}` POST hota hai.
-Alerts: Autoline 60 min down, recovered, aur kisi run mein errors. Webhook na ho to alerts log + dashboard mein dikhte hain.
+Scripts that change Shopify data run as a preview unless `--apply` is given.
 
-## Business decisions (12 Nov 2026)
-- Stock = totalStockQty, Price = Price1, main RooftopId = SOC1P_PH
-- Outlet stock: Manama = SOE4P_PH, Gudaibiya = SOE3P_PH
-- Delivery-only categories: outlet par stock 0 (Basic plan par pickup chhupane ka yahi tarika hai)
+## How a part is matched
 
-## Basic plan par kya NAHI ho sakta
-- Checkout ke time Autoline se **live** stock check. Stock har 15 min mein sync hota hai.
-- Checkout mein custom message ya rok ("is outlet par stock nahi, delivery chuno").
-  Shopify khud sirf us outlet par pickup dikhata hai jahan stock hai.
-- Custom code se pickup option chhupana. Iske liye Shopify Plus chahiye.
+1. Variant metafield `autoline.part_number` (full Autoline part number)
+2. Explicit Autoline number from `parts-list.csv`
+3. Product metafield `autoline.franchise_code`
+4. Brand (Vendor) in the franchise master / `FRANCHISE_MAP` with exactly one code
 
-## Server par deploy
-Poori guide **DEPLOY.md** mein hai: Linux (systemd) aur Windows (NSSM), dono ke liye.
+Otherwise the product is reported as `UNMAPPED` and left untouched. Parts removed from the list are set to Draft, never deleted.
 
-## Files
-- `src/config.js` – .env padhta hai · `src/logger.js` – logs, retention, alerts
-- `src/autoline.js` – Autoline API · `src/shopify.js` – Shopify GraphQL (2025-07)
-- `src/sync.js` – saare rules · `src/server.js` – dashboard + scheduler
-- `state.json` (auto) – last run, app ne kaunse products DRAFT kiye, outage status
+## Security notes
+
+- Passwords are stored as scrypt hashes; sign-in uses an emailed one-time code.
+- New accounts are limited to `ALLOWED_EMAIL_DOMAINS`.
+- Audit logs are admin-only, and emails, IPs and server paths are masked in the dashboard view.
+- Serve the app behind a TLS reverse proxy, then set `SECURE_COOKIES=true` and `HSTS=true`.
+- Never commit `.env`. See `VAPT-remediation-status.md` for the security review status.
+
+## Runtime files
+
+Written to `DATA_DIR` (default: the project folder): `logs/`, `reports/`, `state.json`, `settings.json`, `users.json`, `ac-pairs.json`.
+On a host with an ephemeral disk, point `DATA_DIR` to a persistent volume.

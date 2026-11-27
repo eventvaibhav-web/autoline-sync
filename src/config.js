@@ -103,8 +103,11 @@ function build() {
   stockSource: env('STOCK_SOURCE', 'total').toLowerCase(),
   // franchise = Autoline key is franchise code + SKU; sku = Shopify SKU already IS the Autoline part number (e.g. NKUHD65SLEDT)
   partKeyMode: env('PART_KEY_MODE', 'franchise').toLowerCase(),
-  // false = do not write stock to outlet locations (Manama / Gudebiya); pickup re-check still reads them
+  // false = do not write stock to outlet locations (Manama / Gudaibiya); pickup re-check still reads them
   outletStockSync: bool('OUTLET_STOCK_SYNC', true),
+  // Write ehastock.online_qty metafield (= Online Store Location / C1 qty) so the theme can gate
+  // checkout + pickup on online stock only. online_qty <= 0 => "Arriving Soon", no checkout.
+  onlineQtyMetafield: bool('ONLINE_QTY_METAFIELD', true),
   // How AC / combined products are formed:
   //  pair     = ac-pairs.json auto-pairs indoor -> outdoor on the indoor product
   //  combined = separate combined product declares its parts via the autoline.part_number metafield ("A+B+C")
@@ -244,7 +247,8 @@ const EDITABLE = {
   AUTOLINE_ROOFTOP_ID: { type: 'text', group: 'Autoline', label: 'Main rooftop (price, blockSale)' },
   LOCATION_STOCK_MAP: { type: 'textarea', group: 'Autoline', label: 'Rooftop → Shopify location (ROOFTOP=gid://shopify/Location/ID)' },
   OUTLET_ROOFTOPS: { type: 'text', group: 'Autoline', label: 'Pickup outlet rooftops' },
-  OUTLET_STOCK_SYNC: { type: 'bool', group: 'Autoline', label: 'Write outlet stock (Manama / Gudebiya) to Shopify' },
+  OUTLET_STOCK_SYNC: { type: 'bool', group: 'Autoline', label: 'Write outlet stock (Manama / Gudaibiya) to Shopify' },
+  ONLINE_QTY_METAFIELD: { type: 'bool', group: 'Price & product', label: 'Write ehastock.online_qty metafield (theme online-stock gate)' },
   PART_KEY_MODE: { type: 'select', group: 'Parts', label: 'Autoline part number', options: { franchise: 'Franchise code + SKU', sku: 'SKU is the Autoline part number' } },
   AC_MODE: { type: 'select', group: 'Parts', label: 'AC / combined products', options: { pair: 'Pair list (indoor product + outdoor)', combined: 'Combined product (parts in metafield)', both: 'Both methods' } },
   STOCK_SOURCE: { type: 'select', group: 'Autoline', label: 'Stock quantity', options: { total: 'totalStockQty', prime1: 'Prime1 only', 'prime1-3': 'Prime1 + 2 + 3' } },

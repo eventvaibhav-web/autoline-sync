@@ -469,6 +469,22 @@ async function processPart(item, state, ctx) {
     ctx.metafields.push({ ownerId: v.product.id, namespace: 'ehastock', key: 'delivery_only', type: 'boolean', value: mfWant });
   }
 
+  // 6b) Online stock gate metafield (ehastock.online_qty). The theme reads this to allow/block
+  //     checkout + pickup: online_qty <= 0 => "Arriving Soon", no checkout. Online qty = main rooftop
+  //     (C1 / Online Store Location) stock. Combined/AC products already carry min-of-parts in
+  //     part.totalStockQty (see loadBundle), so a 0 in any part makes online_qty 0 and blocks checkout.
+  if (config.onlineQtyMetafield) {
+    let onlineQty;
+    if (blocked && config.blockSaleAction === 'zero') onlineQty = 0;
+    else onlineQty = toQty(part, config.autoline.rooftopId, base);
+    onlineQty = Math.max(0, Math.floor(Number(onlineQty) || 0));
+    snap.onlineQty = onlineQty;
+    const onlineMfWant = String(onlineQty);
+    if (v.product.onlineQtyMf !== onlineMfWant) {
+      ctx.metafields.push({ ownerId: v.product.id, namespace: 'ehastock', key: 'online_qty', type: 'number_integer', value: onlineMfWant });
+    }
+  }
+
   // 7) Inventory per location
   snap.stocks = [];
   const writes = [];

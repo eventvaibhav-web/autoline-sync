@@ -1,5 +1,5 @@
 'use strict';
-// AC pairs from the business list (Suresh): indoor Autoline part -> outdoor Autoline part.
+// AC pairs from the business list: indoor Autoline part -> outdoor Autoline part.
 // An AC listed here is sold as ONE Shopify product (the indoor one):
 //   price = indoor price1 + outdoor price1 + installation part (INSTALLATION_PART, e.g. ZZCARR), then VAT
 //   stock = the lower of indoor and outdoor stock.
